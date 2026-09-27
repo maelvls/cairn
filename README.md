@@ -1,15 +1,18 @@
 # Cairn
 
-> **Fork [maelvls/cairn](https://github.com/maelvls/cairn), branch
-> `google-auth`**: adds Google sign-in, which replaces email/password when a
-> Google OAuth client is configured (see "Google sign-in" under
-> [Operations](#operations)). Releases are tagged `v<upstream>-google.<n>`
-> and ship the same binaries and multi-arch image as upstream:
+> **Fork [maelvls/cairn](https://github.com/maelvls/cairn)**, whose main
+> branch is `google-auth` (there is no `main` here; upstream's is
+> [aloisdeniel/cairn](https://github.com/aloisdeniel/cairn)). It adds Google
+> sign-in, which replaces email/password when a Google OAuth client is
+> configured (see "Google sign-in" under [Operations](#operations)). Releases
+> are tagged `v<upstream>-google.<n>` and ship the same binaries as upstream:
 >
 > ```sh
 > curl -fsSL https://raw.githubusercontent.com/maelvls/cairn/google-auth/docs/install.sh | CAIRN_INSTALL_DIR="$HOME/.local/bin" sh
-> docker pull ghcr.io/maelvls/cairn:latest
 > ```
+>
+> No image is published yet: build it with
+> `docker build -t cairn "https://github.com/maelvls/cairn.git#google-auth"`.
 
 Cairn is a self-hosted server for uploading, managing and hosting collections
 of **artifacts** — single-page web apps with optional shared SQLite data — an
