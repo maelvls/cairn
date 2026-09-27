@@ -1,14 +1,19 @@
 #!/bin/sh
 # Cairn installer — downloads the latest release binary from GitHub.
 #
-#   curl -fsSL https://aloisdeniel.github.io/cairn/install.sh | sh
+# This copy comes from the maelvls/cairn fork (Google sign-in), whose
+# releases it installs by default:
+#
+#   curl -fsSL https://raw.githubusercontent.com/maelvls/cairn/google-auth/docs/install.sh | sh
 #
 # Options (environment variables):
 #   CAIRN_VERSION      install a specific tag (default: latest release)
 #   CAIRN_INSTALL_DIR  target directory (default: /usr/local/bin)
+#   CAIRN_REPO         GitHub repository to install from (default: maelvls/cairn;
+#                      aloisdeniel/cairn for upstream)
 set -eu
 
-REPO="aloisdeniel/cairn"
+REPO="${CAIRN_REPO:-maelvls/cairn}"
 INSTALL_DIR="${CAIRN_INSTALL_DIR:-/usr/local/bin}"
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -44,6 +49,7 @@ echo "Downloading $url"
 curl -fsSL "$url" -o "$tmp/cairn.tar.gz"
 tar -xzf "$tmp/cairn.tar.gz" -C "$tmp"
 
+mkdir -p "$INSTALL_DIR" 2>/dev/null || true
 if [ -w "$INSTALL_DIR" ]; then
   install -m 0755 "$tmp/cairn" "$INSTALL_DIR/cairn"
 else
