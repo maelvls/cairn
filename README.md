@@ -162,7 +162,8 @@ a Claude session id, or a resource row id. If the reference matches more than
 one artifact the request fails with `409 Conflict`; use the artifact id then.
 
 ```
-POST   /api/auth/login                      {email, password[, confirm]}
+POST   /api/auth/login                      {email, password[, confirm]}  (403 with Google sign-in)
+GET    /api/auth/config                     {password, google}: sign-in methods
 GET    /api/me
 GET    /api/users                           directory: id, name, email (any authed user)
 GET    /api/artifacts                       ?name= ?limit= ?offset=
@@ -239,6 +240,17 @@ there.
   `--base-url https://…` behind TLS so cookies are marked Secure.
 - **Password reset** — an admin resets the account; the user picks a new
   password at next sign-in. Tokens are invalidated instantly on reset/disable.
+- **Google sign-in** — set `--google-client-id` / `--google-client-secret`
+  (`CAIRN_GOOGLE_CLIENT_ID`, `CAIRN_GOOGLE_CLIENT_SECRET`) and `--base-url`,
+  and register `<base-url>/auth/google/callback` as an authorized redirect
+  URI of the OAuth client. Google then **replaces** email/password: the login
+  page only offers Google, `POST /api/auth/login` answers 403, and "reset
+  password" disappears from the admin UI. The trust model does not change:
+  only accounts an admin created can sign in, matched on the verified Google
+  email (the bootstrap admin's email must be a Google account). API keys keep
+  working. `cairn login --host <url>` opens the browser: after Google
+  sign-in, `/auth/cli` asks to confirm, then hands a token to the CLI waiting
+  on `127.0.0.1`.
 
 ## Cairn vs. Claude Artifacts
 

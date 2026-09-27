@@ -23,6 +23,8 @@ func runServe(args []string) error {
 	adminPassword := fs.String("admin-password", envOr("CAIRN_ADMIN_PASSWORD", ""), "optional bootstrap admin password (omit to choose it in the browser at first sign-in)")
 	maxUploadMB := fs.Int64("max-upload-mb", envInt64Or("CAIRN_MAX_UPLOAD_MB", 256), "max decompressed upload size (MiB)")
 	queryTimeout := fs.Duration("query-timeout", envDurationOr("CAIRN_QUERY_TIMEOUT", 10*time.Second), "shared database query timeout")
+	googleClientID := fs.String("google-client-id", envOr("CAIRN_GOOGLE_CLIENT_ID", ""), "Google OAuth client id: replaces email/password sign-in with Google (needs --base-url)")
+	googleClientSecret := fs.String("google-client-secret", envOr("CAIRN_GOOGLE_CLIENT_SECRET", ""), "Google OAuth client secret")
 	maxQueryRows := fs.Int("max-query-rows", int(envInt64Or("CAIRN_MAX_QUERY_ROWS", 10000)), "max rows returned per query")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -40,6 +42,9 @@ func runServe(args []string) error {
 		QueryTimeout:  *queryTimeout,
 		MaxQueryRows:  *maxQueryRows,
 		Logger:        logger,
+
+		GoogleClientID:     *googleClientID,
+		GoogleClientSecret: *googleClientSecret,
 	})
 	if err != nil {
 		return err

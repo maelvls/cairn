@@ -107,6 +107,17 @@ func (c *Client) Login(email, password, confirm string) (*LoginResponse, error) 
 	return &out, nil
 }
 
+// AuthConfig reports which sign-in methods the server accepts.
+type AuthConfig struct {
+	Password bool `json:"password"`
+	Google   bool `json:"google"`
+}
+
+func (c *Client) AuthConfig() (*AuthConfig, error) {
+	var out AuthConfig
+	return &out, c.doJSON("GET", "/api/auth/config", nil, &out)
+}
+
 func (c *Client) Me() (*store.User, error) {
 	var u store.User
 	return &u, c.doJSON("GET", "/api/me", nil, &u)

@@ -55,6 +55,11 @@ gofmt -l . && go vet ./...
 - Never classify SQL as read/write by parsing — connection-level only.
 - Uploaded zips: `fs.ValidPath` names only, no symlinks, decompressed-size
   budget, `index.html` required at root (single wrapping top dir is stripped).
+- Google sign-in (`internal/server/google.go`) replaces passwords when a
+  client id is configured; it only ever signs in to existing accounts, by
+  verified email. The ID token comes from Google's token endpoint directly, so
+  its claims are checked but not its signature — keep it that way only as
+  long as it is never read from the browser.
 - First-login-sets-password is the intended trust model (no invite tokens);
   `confirm` field guards typos. Admin "reset password" returns the account to
   the unclaimed state.

@@ -207,7 +207,7 @@
     <section id="users">
       <p class="kicker">02 / users</p>
       <h2>Users</h2>
-      <p class="hint">New accounts have no password — the user chooses one at first sign-in.</p>
+      <p class="hint">{{if .Google}}Users sign in with the Google account of this email address.{{else}}New accounts have no password — the user chooses one at first sign-in.{{end}}</p>
       <div id="userList"></div>
       <form class="bar" id="userForm">
         <input name="email" type="email" placeholder="email" required>
@@ -233,6 +233,7 @@
   <div class="flash" id="flash"></div>
 
 <script>
+  const googleSignIn = {{.Google}};
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => [...(el || document).querySelectorAll(s)];
 
@@ -396,10 +397,10 @@
         btn(u.disabled ? 'enable' : 'disable', '', async () => {
           try { await patch('/api/admin/users/' + u.id, {disabled: !u.disabled}); loadUsers(); } catch (e) { fail(e); }
         }),
-        btn('reset password', '', async () => {
+        ...(googleSignIn ? [] : [btn('reset password', '', async () => {
           if (!confirm('Reset password for ' + u.email + '? They will choose a new one at next sign-in.')) return;
           try { await post('/api/admin/users/' + u.id + '/reset-password', {}); flash('password reset — next sign-in sets a new one'); } catch (e) { fail(e); }
-        }),
+        })]),
         btn('delete', 'danger', async () => {
           if (!confirm('Delete ' + u.email + '?')) return;
           try { await del('/api/admin/users/' + u.id); loadUsers(); } catch (e) { fail(e); }
@@ -421,7 +422,7 @@
         isAdmin: f.isAdmin.checked,
       });
       f.reset();
-      flash('user created — they set a password at first sign-in');
+      flash(googleSignIn ? 'user created — they sign in with Google' : 'user created — they set a password at first sign-in');
       loadUsers();
     } catch (err) { fail(err); }
   });

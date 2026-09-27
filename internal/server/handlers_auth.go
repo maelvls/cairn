@@ -30,6 +30,10 @@ type loginResponse struct {
 // handleLogin implements email/password login. Cairn's trust model: accounts
 // are created by admins without a password, and the first login sets it.
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if s.googleEnabled() {
+		writeError(w, http.StatusForbidden, "password sign-in is disabled on this server: sign in with Google")
+		return
+	}
 	var req loginRequest
 	if !readJSON(w, r, &req) {
 		return

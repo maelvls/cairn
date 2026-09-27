@@ -12,6 +12,11 @@ func (s *Server) routes() {
 	// Auth
 	mux.HandleFunc("POST /api/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	mux.HandleFunc("GET /api/auth/config", s.handleAuthConfig)
+	mux.HandleFunc("GET /auth/google", s.handleGoogleStart)
+	mux.HandleFunc("GET /auth/google/callback", s.handleGoogleCallback)
+	mux.HandleFunc("GET /auth/cli", s.handleCLIAuthPage)
+	mux.HandleFunc("POST /auth/cli", s.handleCLIAuthConfirm)
 	mux.HandleFunc("GET /api/me", s.requireAuth(s.handleMe))
 
 	// User directory (any authenticated user)

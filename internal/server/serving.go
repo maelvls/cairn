@@ -235,7 +235,8 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := s.templates().ExecuteTemplate(w, "login.html", map[string]any{
-		"Next": safeNext(r.URL.Query().Get("next")),
+		"Next":   safeNext(r.URL.Query().Get("next")),
+		"Google": s.googleEnabled(),
 	}); err != nil {
 		s.log.Error("render login", "err", err)
 	}
@@ -271,7 +272,9 @@ func (s *Server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if err := s.templates().ExecuteTemplate(w, "admin.html", nil); err != nil {
+	if err := s.templates().ExecuteTemplate(w, "admin.html", map[string]any{
+		"Google": s.googleEnabled(),
+	}); err != nil {
 		s.log.Error("render admin", "err", err)
 	}
 }

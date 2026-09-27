@@ -2,14 +2,22 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/aloisdeniel/cairn/internal/client"
 	"github.com/aloisdeniel/cairn/internal/versiondb"
@@ -45,6 +53,10 @@ func runLogin(args []string) error {
 	}
 	if *host == "" {
 		return fmt.Errorf("--host is required (e.g. cairn login --host http://localhost:8787)")
+	}
+	// Servers older than Google sign-in have no /api/auth/config: password.
+	if ac, err := client.New(*host, "").AuthConfig(); err == nil && ac.Google {
+		return browserLogin(*host)
 	}
 	reader := bufio.NewReader(os.Stdin)
 	if *email == "" {
@@ -82,6 +94,78 @@ func runLogin(args []string) error {
 	}
 	fmt.Printf("logged in to %s as %s\n", c.Host, out.User.Email)
 	return nil
+}
+
+// browserLogin signs in through the browser: the server's /auth/cli page
+// (behind Google sign-in) hands a token to a listener on 127.0.0.1, checked
+// against a random state.
+func browserLogin(host string) error {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	defer ln.Close()
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	state := hex.EncodeToString(b)
+	port := ln.Addr().(*net.TCPAddr).Port
+	c := client.New(host, "")
+	loginURL := fmt.Sprintf("%s/auth/cli?port=%d&state=%s", c.Host, port, state)
+
+	tokens := make(chan string, 1)
+	srv := &http.Server{
+		ReadHeaderTimeout: 10 * time.Second,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			q := r.URL.Query()
+			if r.URL.Path != "/callback" || q.Get("state") != state || q.Get("token") == "" {
+				http.Error(w, "unexpected request", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, "<!doctype html><meta charset=utf-8><title>Cairn</title><p style='font-family:sans-serif'>Signed in. You can close this tab and go back to the terminal.</p>")
+			select {
+			case tokens <- q.Get("token"):
+			default:
+			}
+		}),
+	}
+	go srv.Serve(ln)
+	defer srv.Close()
+
+	fmt.Printf("Opening %s\nIf no browser opens, visit that URL.\n", loginURL)
+	openBrowser(loginURL)
+
+	var token string
+	select {
+	case token = <-tokens:
+	case <-time.After(5 * time.Minute):
+		return errors.New("timed out waiting for the browser sign-in")
+	}
+	c.Token = token
+	me, err := c.Me()
+	if err != nil {
+		return err
+	}
+	if err := saveConfig(cliConfig{Host: c.Host, Token: token}); err != nil {
+		return err
+	}
+	fmt.Printf("logged in to %s as %s\n", c.Host, me.Email)
+	return nil
+}
+
+func openBrowser(u string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", u)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
+	default:
+		cmd = exec.Command("xdg-open", u)
+	}
+	_ = cmd.Start()
 }
 
 func readPassword(prompt string) (string, error) {

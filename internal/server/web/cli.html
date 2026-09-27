@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · Cairn</title>
+<title>CLI sign-in · Cairn</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B0E13'/%3E%3Crect x='11' y='7' width='10' height='4' rx='2' fill='%23C6F135'/%3E%3Crect x='8' y='14' width='16' height='4' rx='2' fill='%23C6F135' opacity='.7'/%3E%3Crect x='5' y='21' width='22' height='4' rx='2' fill='%23C6F135' opacity='.45'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -100,11 +100,14 @@
     display:none; margin-top:1rem; font-family:var(--mono); font-size:12.5px;
     color:var(--danger); text-align:center; overflow-wrap:anywhere;
   }
+  .who{text-align:center; font-family:var(--mono); font-size:13px; color:var(--muted); margin-bottom:.4rem; overflow-wrap:anywhere}
+  .note{text-align:center; font-size:13.5px; color:var(--muted); line-height:1.5}
+  a.cancel{display:block; text-align:center; margin-top:1rem; font-family:var(--mono); font-size:12px; color:var(--faint)}
 </style>
 </head>
 <body>
   <div class="wrap">
-  <main class="card" id="card">
+  <main class="card">
     <div class="mark" aria-hidden="true">
       <svg viewBox="0 0 32 32">
         <rect x="11" y="7"  width="10" height="4" rx="2" fill="#C6F135"/>
@@ -113,62 +116,17 @@
       </svg>
     </div>
     <h1>cairn</h1>
-    <p class="sub">artifact server</p>
-    {{if .Google}}
-    <a class="google" href="/auth/google?next={{.Next}}" autofocus>Sign in with Google</a>
-    {{with .Error}}<p class="error shown">{{.}}</p>{{end}}
-    {{else}}
-    <form id="form" autocomplete="on">
-      <label for="email">email</label>
-      <input id="email" name="email" type="email" required autofocus>
-      <label for="password">password</label>
-      <input id="password" name="password" type="password" required>
-      <div id="confirmRow">
-        <label for="confirm">confirm password</label>
-        <input id="confirm" name="confirm" type="password">
-      </div>
-      <p class="claim-note">First sign-in — the password you enter now becomes
-      your account password. Type it twice.</p>
-      <button type="submit" id="submit">Sign in</button>
-      <p class="error{{if .Error}} shown{{end}}" id="error">{{.Error}}</p>
+    <p class="sub">command-line sign-in</p>
+    <p class="who">{{.Email}}</p>
+    <p class="note">The <code>cairn</code> CLI running on this computer asks to act as this account.
+    Only continue if you just ran <code>cairn login</code>.</p>
+    <form method="post" action="/auth/cli">
+      <input type="hidden" name="port" value="{{.Port}}">
+      <input type="hidden" name="state" value="{{.State}}">
+      <button type="submit" autofocus>Authorize the CLI</button>
     </form>
-    {{end}}
+    <a class="cancel" href="/">cancel</a>
   </main>
   </div>
-{{if not .Google}}
-<script>
-  const next = {{.Next}};
-  const form = document.getElementById('form');
-  const errEl = document.getElementById('error');
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    errEl.style.display = 'none';
-    const body = {
-      email: form.email.value.trim(),
-      password: form.password.value,
-      confirm: form.confirm.value,
-    };
-    try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-      });
-      const data = await resp.json();
-      if (resp.ok) { location.href = next || '/'; return; }
-      if ((data.error || '').startsWith('first login')) {
-        document.getElementById('card').classList.add('claim');
-        document.getElementById('submit').textContent = 'Set password & sign in';
-        if (!body.confirm) { document.getElementById('confirm').focus(); }
-      }
-      errEl.textContent = data.error || ('sign-in failed (' + resp.status + ')');
-      errEl.style.display = 'block';
-    } catch (err) {
-      errEl.textContent = 'network error: ' + err.message;
-      errEl.style.display = 'block';
-    }
-  });
-</script>
-{{end}}
 </body>
 </html>

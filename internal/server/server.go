@@ -32,6 +32,11 @@ type Config struct {
 	QueryTimeout  time.Duration
 	MaxQueryRows  int
 	Logger        *slog.Logger
+
+	// Google OAuth client. When set, Google sign-in replaces email/password
+	// and BaseURL is required to build the redirect URI.
+	GoogleClientID     string
+	GoogleClientSecret string
 }
 
 func (c *Config) applyDefaults() {
@@ -69,12 +74,20 @@ type Server struct {
 	mux    *http.ServeMux
 	secure bool // serve behind https (from BaseURL)
 
+	// Google endpoints and HTTP client, overridable by tests.
+	googleAuthURL  string
+	googleTokenURL string
+	httpClient     *http.Client
+
 	tmpl     *template.Template
 	tmplOnce sync.Once
 }
 
 func New(cfg Config) (*Server, error) {
 	cfg.applyDefaults()
+	if cfg.GoogleClientID != "" && (cfg.GoogleClientSecret == "" || cfg.BaseURL == "") {
+		return nil, errors.New("Google sign-in needs the client secret and --base-url (the redirect URI is <base-url>/auth/google/callback)")
+	}
 	layout, err := store.NewLayout(cfg.DataDir)
 	if err != nil {
 		return nil, fmt.Errorf("data dir: %w", err)
@@ -96,6 +109,10 @@ func New(cfg Config) (*Server, error) {
 		secret: secret,
 		dbs:    versiondb.NewManager(layout, cfg.QueryTimeout, cfg.MaxQueryRows),
 		mux:    http.NewServeMux(),
+
+		googleAuthURL:  googleAuthURL,
+		googleTokenURL: googleTokenURL,
+		httpClient:     &http.Client{Timeout: 15 * time.Second},
 	}
 	if u, err := url.Parse(cfg.BaseURL); err == nil && u.Scheme == "https" {
 		s.secure = true

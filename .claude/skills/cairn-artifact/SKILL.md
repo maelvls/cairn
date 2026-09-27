@@ -24,6 +24,8 @@ cairn whoami --json
 - If not authenticated, either environment variables are set
   (`CAIRN_HOST` + `CAIRN_API_KEY`) or a stored login exists
   (`cairn login --host <url> --email <email> --password <password>`).
+  On a server with Google sign-in, `cairn login --host <url>` opens the
+  browser instead; the user signs in and confirms there.
   Ask the user for a host and credentials if neither works — do not guess.
 
 ## Workflow
