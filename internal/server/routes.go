@@ -61,6 +61,13 @@ func (s *Server) routes() {
 	mux.HandleFunc("PUT /api/artifacts/{id}/versions/{vid}/files/{path...}", s.requireAuth(s.withArtifact(s.handleFileUpload)))
 	mux.HandleFunc("DELETE /api/artifacts/{id}/versions/{vid}/files/{path...}", s.requireAuth(s.withArtifact(s.handleFileDelete)))
 
+	// MCP (Streamable HTTP, stateless: no SSE stream to GET)
+	mux.HandleFunc("POST /mcp", s.requireAuth(s.handleMCP))
+	mux.HandleFunc("GET /mcp", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Allow", "POST")
+		writeError(w, http.StatusMethodNotAllowed, "this MCP server does not stream; POST JSON-RPC messages")
+	})
+
 	// Pages
 	mux.HandleFunc("GET /", s.handleRoot)
 	mux.HandleFunc("GET /login", s.handleLoginPage)

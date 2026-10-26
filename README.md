@@ -4,7 +4,8 @@
 > branch is `google-auth` (there is no `main` here; upstream's is
 > [aloisdeniel/cairn](https://github.com/aloisdeniel/cairn)). It adds Google
 > sign-in, which replaces email/password when a Google OAuth client is
-> configured (see "Google sign-in" under [Operations](#operations)). Releases
+> configured (see "Google sign-in" under [Operations](#operations)), and an
+> [MCP endpoint](#mcp) for AI clients. Releases
 > are tagged `v<upstream>-google.<n>` and ship the same binaries and
 > multi-arch image as upstream:
 >
@@ -238,6 +239,34 @@ the `cairn.js` API. It is picked up automatically when working inside this
 repo; copy the directory into any other project's `.claude/skills/` (or
 `~/.claude/skills/` for global use) to let Claude publish artifacts from
 there.
+
+## MCP
+
+`POST /mcp` is an [MCP](https://modelcontextprotocol.io) server (Streamable
+HTTP, stateless: plain JSON answers, no SSE stream, so `GET /mcp` is 405). It
+authenticates like the API, with `Authorization: Bearer <api-key>` (or a JWT),
+and acts as that key's user. Cairn doesn't do OAuth itself: to plug it into a
+client that wants OAuth 2.1 (claude.ai, grok.com…), put an OAuth gateway in
+front that holds an API key, e.g. [mcp-auth-proxy](https://github.com/sigbit/mcp-auth-proxy)
+with `--proxy-bearer-token`, or MCPJungle with `bearer_token`.
+
+| Tool | |
+|------|-|
+| `list_artifacts`, `get_artifact` | artifacts, versions, page URLs |
+| `publish` | create an artifact from inline files (text or base64), add a version, or overwrite one (`replace_version`) |
+| `update_artifact`, `delete_artifact` | rename, describe, public/private; delete |
+| `read_source` | list or read a version's published files |
+| `db_query`, `db_batch` | SQL on a version's shared database |
+| `list_files`, `read_file`, `write_file`, `delete_file` | a version's file storage |
+
+`version` defaults to the latest one everywhere. Each tool replays the
+matching `/api` route in-process (`internal/server/mcp.go`), so limits and
+validation are the API's.
+
+```sh
+curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" \
+  -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
 
 ## Operations
 

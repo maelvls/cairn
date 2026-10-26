@@ -38,6 +38,11 @@ gofmt -l . && go vet ./...
   `shell.html` (iframe wrapper), `admin.html` (vanilla-JS admin UI over the
   JSON APIs), `cairn.js` (client lib; falls back to sql.js-in-browser with
   user `{id: 0, name: "Debug"}` when not served by Cairn).
+- `internal/server/mcp.go` — MCP endpoint (`POST /mcp`, stateless
+  Streamable HTTP, hand-rolled JSON-RPC). Tools replay `/api` routes
+  in-process through `s.mux` with the caller's user in the context
+  (`mcpAPI`); add a tool by calling the API, not the store, so the API's
+  rules apply. `read_source` is the exception (no API serves raw sources).
 - `internal/client/` — Go API client used by the CLI (zips + multipart push).
 - `examples/` — reference artifacts: `guestbook` (single file, exercised by
   e2e), `poll` (multi-file + assets + config fetch), `drive` (file storage as
