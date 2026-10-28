@@ -156,6 +156,36 @@
   .code span{display:block; padding:0 .8rem 0 0; white-space:pre}
   .code span::before{counter-increment:ln; content:counter(ln); display:inline-block; width:3.2em; padding-right:.8em; text-align:right; color:var(--faint); user-select:none}
   .preview-img{max-width:100%; border:1px solid var(--line); border-radius:8px; background:repeating-conic-gradient(#1a1f29 0 25%, #12161e 0 50%) 0 0/16px 16px}
+  /* one column no wider than the panel: long lines scroll inside .code and
+     .diff, never the panel */
+  .sec.src{grid-template-columns:minmax(0,1fr)}
+  .cmprow{display:flex; align-items:center; gap:.4rem .7rem; flex-wrap:wrap; font-family:var(--mono); font-size:11.5px; color:var(--faint)}
+  .cmprow:empty{display:none}
+  .cmprow select{width:auto; min-width:0; max-width:100%; flex:0 1 auto; padding:4px 8px; font-size:12px}
+  .files .mark{font-family:var(--mono); font-size:14px; font-weight:600; text-align:center; line-height:1}
+  .mark.added{color:var(--accent)}
+  .mark.removed{color:var(--danger)}
+  .mark.changed, .mark.error{color:var(--warn)}
+  .files .removed span{text-decoration:line-through; text-decoration-color:var(--danger-dim)}
+  .imgdiff{display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.6rem}
+  .imgdiff figcaption{font-family:var(--mono); font-size:11px; color:var(--faint); margin-bottom:.2rem}
+
+  /* unified diff: rows of old line, new line, sign, text */
+  .diff{overflow:auto; border:1px solid var(--line); border-radius:8px; background:var(--bg); font-family:var(--mono); font-size:11.5px; line-height:1.55; overscroll-behavior-x:contain}
+  .diff-body{display:inline-block; min-width:100%; padding:.4rem 0}
+  .dl{display:flex; white-space:pre}
+  .dl .ln{flex:none; width:3.4em; padding-right:.6em; text-align:right; color:var(--faint); user-select:none}
+  .dl .sg{flex:none; width:1.4em; text-align:center; color:var(--faint); user-select:none}
+  .dl .tx{flex:1 0 auto; padding-right:.8rem}
+  .dl.add{background:rgba(198,241,53,.09)}
+  .dl.add .sg{color:var(--accent)}
+  .dl.del{background:rgba(224,138,124,.11)}
+  .dl.del .sg{color:var(--danger)}
+  .dl.hunk{color:#9DB7FF; background:rgba(157,183,255,.06); margin-top:.3rem}
+  .dl.hunk:first-child{margin-top:0}
+  .dl.hunk .tx, .dl.skip .tx{padding-left:.8rem}
+  button.dl.skip{width:100%; border:0; background:var(--bg-raise); color:var(--faint); font:inherit; text-align:left; cursor:pointer}
+  button.dl.skip:hover{color:var(--text); background:var(--bg-hover)}
 </style>
 </head>
 <body>
@@ -201,6 +231,9 @@
     a: BOOT.artifact, versions: BOOT.versions, current: BOOT.version, follow: BOOT.follow,
     pinned: BOOT.pinned, dir: new Map(), comments: [], cfilter: 'open',
     tab: null, table: null, sourcePath: null,
+    // Source tab: compare with 'prev' (the version before), 'none' or a
+    // version id; list only the files that differ.
+    compare: 'prev', onlyChanged: false,
   };
   const base = '/api/artifacts/' + S.a.id;
   const latest = () => S.versions[0];
@@ -332,7 +365,8 @@
       }
     }
     renderHeader();
-    if (S.tab === 'info') renderPanel();
+    // The Source tab follows the files shown: another version, or replaced.
+    if (S.tab === 'info' || (S.tab === 'source' && (S.current.id !== prev.id || S.current.updatedAt !== prev.updatedAt))) renderPanel();
   }
   setInterval(poll, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { poll(); refreshComments(); } });
@@ -756,32 +790,193 @@
   // ------------------------------------------------------------ source
   const TEXT_EXT = /\.(html?|css|m?js|json|txt|md|svg|xml|csv|ts|tsx|jsx|map|webmanifest|ya?ml|toml)$/i;
   const IMG_EXT = /\.(png|jpe?g|gif|webp|avif|ico|bmp|svg)$/i;
+  const isImage = path => IMG_EXT.test(path) && !/\.svg$/i.test(path);
+  // Text files up to 512 KB are shown (and compared) line by line; the rest
+  // only by size.
+  const isText = f => TEXT_EXT.test(f.path) && f.size <= 512 * 1024;
+  const rawURL = (v, path) => fullURL(v) + path.split('/').map(encodeURIComponent).join('/');
+
+  // File lists and texts are cached per version content (updatedAt moves
+  // when a version's files are replaced), up to about 32 MB of text.
+  const srcCache = new Map();
+  let srcCacheSize = 0;
+  function cached(key, fn) {
+    if (srcCacheSize > 32 << 20) { srcCache.clear(); srcCacheSize = 0; }
+    if (!srcCache.has(key)) {
+      srcCache.set(key, fn().then(r => { srcCacheSize += typeof r === 'string' ? r.length : 0; return r; },
+        e => { srcCache.delete(key); throw e; }));
+    }
+    return srcCache.get(key);
+  }
+  const vkey = v => v.id + '@' + v.updatedAt;
+  const listFiles = v => cached('ls ' + vkey(v), () => api(base + '/versions/' + v.id + '/source', {anonymousOK: true}));
+  const fileText = (v, path) => cached('raw ' + vkey(v) + ' ' + path, async () => {
+    const resp = await fetch(rawURL(v, path), {cache: 'no-cache'});
+    if (!resp.ok) throw new Error(`${path} in #${v.seq}: HTTP ${resp.status}`);
+    return resp.text();
+  });
+
+  // The version the Source tab compares with: S.compare when it is another
+  // existing version, else the one before the current; null for none.
+  function compareVersion() {
+    if (S.compare === 'none') return null;
+    const picked = S.versions.find(v => v.id === S.compare && v.id !== S.current.id);
+    return picked || S.versions.filter(v => v.seq < S.current.seq).sort((x, y) => y.seq - x.seq)[0] || null;
+  }
+
+  // compareFiles(cur, old) → one row per path of either version, sorted:
+  // {path, n (file in cur), o (file in old), text, status} with status
+  // 'added', 'removed', 'changed', 'same' or 'error' (unreadable). Text
+  // files are compared by content, others by size only.
+  async function compareFiles(cur, old) {
+    const [nf, of] = await Promise.all([listFiles(cur), listFiles(old)]);
+    const after = new Map(nf.map(f => [f.path, f])), before = new Map(of.map(f => [f.path, f]));
+    const rows = [...new Set([...after.keys(), ...before.keys()])].sort().map(path => {
+      const n = after.get(path), o = before.get(path);
+      const text = !!(n && o && isText(n) && isText(o));
+      return {path, n, o, text, status: !o ? 'added' : !n ? 'removed' : text ? null : n.size !== o.size ? 'changed' : 'same'};
+    });
+    const todo = rows.filter(r => !r.status);
+    let next = 0;
+    await Promise.all(Array.from({length: Math.min(6, todo.length)}, async () => {
+      while (next < todo.length) {
+        const r = todo[next++];
+        try {
+          const [a, b] = await Promise.all([fileText(old, r.path), fileText(cur, r.path)]);
+          r.status = a === b ? 'same' : 'changed';
+        } catch { r.status = 'error'; }
+      }
+    }));
+    return rows;
+  }
+
+  const MARKS = {added: '+', removed: '−', changed: '~', error: '?'};
   function sourcePane() {
+    const cur = S.current, old = compareVersion();
     const list = h('div.files', h('div.spinner'));
     const view = h('div');
+    const files = h('section.sec.src', h('h3', `PUBLISHED FILES · #${cur.seq}`));
+    if (S.versions.length > 1) {
+      const sel = h('select.input', {id: 'compareWith', onchange: e => { S.compare = e.target.value; renderPanel(); }},
+        h('option', {value: 'none'}, 'no comparison'),
+        S.versions.filter(v => v.id !== cur.id).map(v => h('option', {value: v.id}, `#${v.seq}${v.name ? ' · ' + v.name : ''}`)));
+      sel.value = old ? old.id : 'none';
+      files.append(h('div.cmprow', h('label', {for: 'compareWith'}, 'compare with'), sel));
+    }
+    const summary = h('div.cmprow');
+    files.append(summary, list);
     const frag = document.createDocumentFragment();
-    frag.append(h('section.sec', h('h3', `PUBLISHED FILES · #${S.current.seq}`), list), h('section.sec', view));
-    api(vbase() + '/source', {anonymousOK: true}).then(files => {
-      list.replaceChildren(...files.map(f => h('button', {'aria-pressed': String(S.sourcePath === f.path), title: f.path,
-        onclick: e => { S.sourcePath = f.path; for (const b of list.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); showSource(f, view); }},
-        icon('file'), h('span', f.path), h('small', bytes(f.size)))));
-      const sel = files.find(f => f.path === S.sourcePath) || files.find(f => f.path === 'index.html');
-      if (sel) { S.sourcePath = sel.path; showSource(sel, view); [...list.children].forEach(b => b.setAttribute('aria-pressed', String(b.title === sel.path))); }
-    }).catch(e => list.replaceChildren(h('p.hint', e.message)));
+    frag.append(files, h('section.sec.src', view));
+
+    // fill(rows) lists the files; a row is {path, n, o, status} as made by
+    // compareFiles, or a bare file when there is no comparison.
+    function fill(rows, pick) {
+      if (!list.isConnected) return; // this pane was replaced meanwhile
+      const shown = old && S.onlyChanged ? rows.filter(r => r.status !== 'same') : rows;
+      const select = r => {
+        if (!list.isConnected) return;
+        S.sourcePath = r.path;
+        for (const b of list.children) b.setAttribute('aria-pressed', String(b.title === r.path));
+        if (!old || r.status === 'same') showFile(cur, r.n, view);
+        else if (r.status === 'added') showFile(cur, r.n, view, `Only in #${cur.seq}, not in #${old.seq}.`);
+        else if (r.status === 'removed') showFile(old, r.o, view, `Only in #${old.seq}, not in #${cur.seq}: shown from #${old.seq}.`);
+        else showDiff(r, old, cur, view);
+      };
+      list.replaceChildren(...shown.map(r => {
+        const f = r.n || r.o;
+        return h('button' + (r.status === 'removed' ? '.removed' : ''), {'aria-pressed': String(S.sourcePath === r.path), title: r.path, onclick: () => select(r)},
+          MARKS[r.status] ? h('b.mark.' + r.status, {title: r.status === 'error' ? 'could not be read' : r.status}, MARKS[r.status]) : icon('file'),
+          h('span', r.path),
+          h('small', r.status === 'changed' && r.o.size !== r.n.size ? `${bytes(r.o.size)} → ${bytes(r.n.size)}` : bytes(f.size)));
+      }));
+      if (!shown.length) list.append(h('p.hint', 'No changed files.'));
+      if (pick) {
+        const sel = shown.find(r => r.path === S.sourcePath) || shown.find(r => old && r.status !== 'same') || shown.find(r => r.path === 'index.html');
+        if (sel) select(sel); else view.replaceChildren();
+      }
+    }
+
+    if (!old) {
+      listFiles(cur).then(fs => fill(fs.map(f => ({path: f.path, n: f})), true))
+        .catch(e => list.replaceChildren(h('p.hint', e.message)));
+      return frag;
+    }
+    summary.append(h('span.hint', `Comparing with #${old.seq}…`));
+    compareFiles(cur, old).then(rows => {
+      const parts = [['changed', 'changed'], ['added', 'added'], ['removed', 'removed'], ['error', 'unreadable']]
+        .map(([s, label]) => [rows.filter(r => r.status === s).length, label]).filter(([n]) => n);
+      const only = h('input', {type: 'checkbox', checked: S.onlyChanged, onchange: e => { S.onlyChanged = e.target.checked; fill(rows, true); }});
+      summary.replaceChildren(
+        h('span.hint', parts.length ? `${parts.map(p => p.join(' ')).join(', ')} vs #${old.seq}` : `No differences with #${old.seq}`),
+        h('span.spacer'), h('label.check', only, 'only changed files'));
+      fill(rows, true);
+    }).catch(e => { summary.replaceChildren(); list.replaceChildren(h('p.hint', e.message)); });
     return frag;
   }
-  async function showSource(f, view) {
-    const url = fullURL(S.current) + f.path.split('/').map(encodeURIComponent).join('/');
-    const head = h('div', {style: {display: 'flex', alignItems: 'center', gap: '.5rem'}},
-      h('b.mono', {style: {flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}, f.path),
-      h('a.btn.small', {href: url, target: '_blank', rel: 'noopener'}, icon('external'), 'raw'));
-    if (IMG_EXT.test(f.path) && !/\.svg$/i.test(f.path)) { view.replaceChildren(head, h('img.preview-img', {src: url, alt: f.path})); return; }
-    if (!TEXT_EXT.test(f.path) || f.size > 512 * 1024) { view.replaceChildren(head, h('p.hint', 'Binary or large file: open it raw.')); return; }
-    view.replaceChildren(head, h('div.spinner'));
+
+  // Only the latest file clicked gets to fill the view.
+  let viewSeq = 0;
+  function fileHead(path, links, note) {
+    return [h('div', {style: {display: 'flex', alignItems: 'center', gap: '.5rem'}},
+      h('b.mono', {style: {flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}, path),
+      links.map(([label, url]) => h('a.btn.small', {href: url, target: '_blank', rel: 'noopener'}, icon('external'), label))),
+      note ? h('p.hint', note) : null];
+  }
+  async function showFile(v, f, view, note) {
+    const seq = ++viewSeq;
+    const url = rawURL(v, f.path);
+    const head = fileHead(f.path, [['raw', url]], note);
+    if (isImage(f.path)) { view.replaceChildren(...head, h('img.preview-img', {src: url, alt: f.path})); return; }
+    if (!isText(f)) { view.replaceChildren(...head, h('p.hint', 'Binary or large file: open it raw.')); return; }
+    view.replaceChildren(...head, h('div.spinner'));
     try {
-      const text = await (await fetch(url)).text();
-      view.replaceChildren(head, h('pre.code', text.replace(/\n$/, '').split('\n').map(l => h('span', l))));
-    } catch (e) { view.replaceChildren(head, h('p.hint', e.message)); }
+      const text = await fileText(v, f.path);
+      if (seq === viewSeq) view.replaceChildren(...head, h('pre.code', ui.splitLines(text).map(l => h('span', l))));
+    } catch (e) { if (seq === viewSeq) view.replaceChildren(...head, h('p.hint', e.message)); }
+  }
+  async function showDiff(r, old, cur, view) {
+    const seq = ++viewSeq;
+    const head = fileHead(r.path, [['#' + old.seq, rawURL(old, r.path)], ['#' + cur.seq, rawURL(cur, r.path)]]);
+    if (!r.text) {
+      view.replaceChildren(...head,
+        h('p.hint', `${TEXT_EXT.test(r.path) ? 'Large file' : 'Binary'} changed: ${bytes(r.o.size)} → ${bytes(r.n.size)}.`),
+        isImage(r.path) ? h('div.imgdiff',
+          h('figure', h('figcaption', '#' + old.seq), h('img.preview-img', {src: rawURL(old, r.path), alt: r.path + ' in #' + old.seq})),
+          h('figure', h('figcaption', '#' + cur.seq), h('img.preview-img', {src: rawURL(cur, r.path), alt: r.path + ' in #' + cur.seq}))) : null);
+      return;
+    }
+    view.replaceChildren(...head, h('div.spinner'));
+    try {
+      const [a, b] = await Promise.all([fileText(old, r.path), fileText(cur, r.path)]);
+      if (seq !== viewSeq) return;
+      const ops = ui.diffLines(a, b);
+      const hs = ops && ui.hunks(ops, 3);
+      view.replaceChildren(...head, !ops ? h('p.hint', 'Files too different to diff: open both raw.')
+        : hs.length ? diffView(ops, hs)
+        : h('p.hint', 'Same lines: only the final newline differs.'));
+    } catch (e) { if (seq === viewSeq) view.replaceChildren(...head, h('p.hint', e.message)); }
+  }
+  // diffView(ops, hunks) renders a unified diff: the hunks, old and new
+  // line numbers, unchanged runs in between collapsed to a button that
+  // expands them. A carriage return shows as ␍, so CRLF changes are visible.
+  function diffView(ops, hunks) {
+    const row = o => h('div.dl' + (o.op === '+' ? '.add' : o.op === '-' ? '.del' : ''),
+      h('span.ln', o.a ?? ''), h('span.ln', o.b ?? ''), h('span.sg', o.op), h('span.tx', o.text.replace(/\r$/, '␍')));
+    const gap = (from, to) => {
+      if (to <= from) return [];
+      const n = to - from;
+      const b = h('button.dl.skip', {title: 'Show these lines', onclick: () => b.replaceWith(...ops.slice(from, to).map(row))},
+        h('span.tx', `⋯ ${n} unchanged line${n === 1 ? '' : 's'}`));
+      return [b];
+    };
+    const body = h('div.diff-body');
+    let at = 0;
+    for (const hk of hunks) {
+      body.append(...gap(at, hk.start), h('div.dl.hunk', h('span.tx', hk.header)), ...ops.slice(hk.start, hk.end).map(row));
+      at = hk.end;
+    }
+    body.append(...gap(at, ops.length));
+    return h('div.diff', body);
   }
 
   // -------------------------------------------------------------- boot
