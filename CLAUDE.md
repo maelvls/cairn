@@ -53,6 +53,14 @@ node internal/server/web/ui_diff_test.mjs   # ui.diffLines/ui.hunks (viewer sour
   ntfy never fails a comment; tests use a fake ntfy via `s.httpClient`.
   `handlers_source.go` — read-only views for the viewer: published
   files, and `db/tables` (query_only pool, never creates a database).
+- `internal/server/ai.go` — AI runtime behind `cairn.ai`: `POST
+  /api/artifacts/{id}/ai` proxies one non-streaming Messages API call with
+  the server's `--anthropic-api-key` (plain net/http, `s.anthropicURL`
+  overridable by tests, `CAIRN_ANTHROPIC_BASE_URL` for e2e). requireAuth
+  only — anonymous visitors must never spend the key; per-user daily quota
+  kept in memory (`aiQuota`, refunded on upstream failure); upstream errors
+  → 502, scrubbed of the key. `GET /api/me/ai` reports status and quota.
+  `web/cairn.js` and `docs/cairn.js` are kept identical.
 - `internal/server/mcp.go` — MCP endpoint (`POST /mcp`, stateless
   Streamable HTTP, hand-rolled JSON-RPC). Tools replay `/api` routes
   in-process through `s.mux` with the caller's user in the context

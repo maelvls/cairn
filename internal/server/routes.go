@@ -91,6 +91,11 @@ func (s *Server) routes() {
 	mux.HandleFunc("PUT /api/artifacts/{id}/versions/{vid}/files/{path...}", s.requireAuth(s.withArtifact(s.handleFileUpload)))
 	mux.HandleFunc("DELETE /api/artifacts/{id}/versions/{vid}/files/{path...}", s.requireAuth(s.withArtifact(s.handleFileDelete)))
 
+	// AI runtime (ai.go): signed-in users only, so anonymous visitors of
+	// public artifacts never spend the server's Anthropic key.
+	mux.HandleFunc("GET /api/me/ai", s.requireAuth(s.handleAIStatus))
+	mux.HandleFunc("POST /api/artifacts/{id}/ai", s.requireAuth(s.withArtifact(s.handleAI)))
+
 	// MCP (Streamable HTTP, stateless: no SSE stream to GET)
 	mux.HandleFunc("POST /mcp", s.requireMCPAuth(s.handleMCP))
 	mux.HandleFunc("GET /mcp", func(w http.ResponseWriter, r *http.Request) {

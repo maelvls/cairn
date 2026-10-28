@@ -188,6 +188,29 @@ readable anonymously on public artifacts while writes require authentication.
 `list`/`download`/`url` accept `{version: otherVersionId}` for read-only
 access to a sibling version's files.
 
+When the server has an Anthropic API key (`--anthropic-api-key`, see
+[Operations](#operations)), pages can **call Claude** — Cairn's take on
+`window.claude` in Claude Artifacts:
+
+```js
+const st = await cairn.ai.status();   // {enabled, model, remaining, ...}; null signed out
+const summary = await cairn.ai.ask('Summarize: ' + text, {system: 'One sentence.', maxTokens: 300});
+const reply = await cairn.ai.chat([
+  {role: 'user', content: 'Hi!'},
+  {role: 'assistant', content: 'Hello! What can I do?'},
+  {role: 'user', content: 'Name three rivers.'},
+]);
+const full = await cairn.ai.complete({prompt: 'Hi'});   // {text, model, usage, stop_reason}
+```
+
+The call goes through the server with the server's key: **signed-in users
+only** (an anonymous visitor of a public artifact gets a 401), each within a
+daily request quota (`--ai-daily-limit`, 429 when reached). Errors carry
+`.status` (401 signed out, 429 quota, 503 AI not configured, 502 upstream
+error). Everything a page puts in a prompt is sent to Anthropic: never include
+data the viewer should not see. In debug mode `cairn.ai` rejects with "cairn.ai
+needs a Cairn server".
+
 **Local debug mode.** Open the same directory without a Cairn server (any
 static file server, or `file://`) and `cairn.js` switches to an in-browser
 SQLite (sql.js/WebAssembly) persisted in browser storage; `cairn.me()` returns
@@ -244,8 +267,22 @@ GET    /api/artifacts/{id}/versions/{vid}/files      list: [{path, size, modifie
 GET    /api/artifacts/{id}/versions/{vid}/files/{path}   download (ranges supported)
 PUT    /api/artifacts/{id}/versions/{vid}/files/{path}   raw body upload (overwrites)
 DELETE /api/artifacts/{id}/versions/{vid}/files/{path}
+POST   /api/artifacts/{id}/ai               call Claude (auth required): {prompt | messages: [{role, content}],
+                                            system, max_tokens, model} → {text, model, usage, stop_reason}
+GET    /api/me/ai                           {enabled, model, models, maxTokens, dailyLimit, remaining}
 GET    /api/admin/users|keys ...            admin management
 ```
+
+Notes on the AI proxy: exactly one of `prompt` (one user message) or
+`messages` (roles `user`/`assistant`, first one `user`; `content` a string or
+an array of `text`/`image`/`document` blocks, as in the Messages API).
+`max_tokens` is clamped to `--ai-max-tokens` (also the default); `model` is
+the server's `--ai-model` unless the page picks another current model from
+`models`. `text` concatenates the answer's text blocks; check `stop_reason`
+(`end_turn`, `max_tokens`, `refusal`, …). Unknown fields are a 400. Bodies
+are capped at 200 KB (413), calls time out after 120 s (more for large
+`--ai-max-tokens`); Anthropic errors come back as 502 with their
+message. `remaining` is -1 without a daily limit.
 
 Notes on the SQL proxy: one statement per `query` call (use `batch` for
 scripts/transactions); write access is enforced at the connection level
@@ -400,6 +437,19 @@ curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" 
   comment). With `--base-url` set, tapping a notification opens the
   artifact's comments. ntfy topics are readable by whoever knows their name:
   pick hard-to-guess ones.
+- **AI runtime** — `--anthropic-api-key` (`CAIRN_ANTHROPIC_API_KEY`) lets
+  artifacts call Claude through `cairn.ai` (`POST /api/artifacts/{id}/ai`);
+  without it the endpoint answers 503. The key stays on the server. Signed-in
+  users only, `--ai-daily-limit` requests per user per UTC day (default 200,
+  `0` = unlimited; counted in memory, so a restart resets it; calls Anthropic
+  answers with an error are not counted, aborted ones are), `--ai-max-tokens`
+  caps each answer (default 4096; calls time out after 120 s, longer for
+  caps above ~4800 tokens),
+  `--ai-model` picks the default model (default `claude-sonnet-5-5`; pages may
+  also ask for `claude-opus-5-5` or `claude-haiku-5-5`). Requests on Sonnet
+  5.5 and Opus 5.5 opt into Anthropic's server-side refusal fallback. Each call
+  is logged at info level with the user's email, the artifact and the token
+  counts (`ai request …`).
 
 ## Cairn vs. Claude Artifacts
 
@@ -411,7 +461,7 @@ curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" 
 | Versioning | product history | explicit versions + changelogs, stable URLs, re-upload; the viewer follows the latest live |
 | Feedback | comments on artifacts | comment threads per artifact, read and answered by agents (MCP, CLI) |
 | Automation | Claude's Artifact tool | any agent via CLI/API keys — model-agnostic |
-| AI runtime | `window.claude` in page | none built in |
+| AI runtime | `window.claude` in page | `cairn.ai.ask/chat/complete` through the server's Anthropic key, signed-in users only, per-user daily quota |
 | Security | sandboxed for untrusted viewers | trust-based, invited users only |
 
 ## Development

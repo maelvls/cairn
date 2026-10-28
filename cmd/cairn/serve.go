@@ -29,6 +29,10 @@ func runServe(args []string) error {
 	ntfyURL := fs.String("ntfy-url", envOr("CAIRN_NTFY_URL", "https://ntfy.sh"), "ntfy server for comment notifications; users pick their topic in the gallery")
 	ntfyToken := fs.String("ntfy-token", envOr("CAIRN_NTFY_TOKEN", ""), "ntfy access token, for a self-hosted ntfy with access control (prefer the env var)")
 	maxQueryRows := fs.Int("max-query-rows", int(envInt64Or("CAIRN_MAX_QUERY_ROWS", 10000)), "max rows returned per query")
+	anthropicAPIKey := fs.String("anthropic-api-key", envOr("CAIRN_ANTHROPIC_API_KEY", ""), "Anthropic API key: enables cairn.ai (artifacts calling Claude) for signed-in users")
+	aiModel := fs.String("ai-model", envOr("CAIRN_AI_MODEL", ""), "default Claude model for cairn.ai (default claude-sonnet-5-5)")
+	aiDailyLimit := fs.Int("ai-daily-limit", int(envInt64Or("CAIRN_AI_DAILY_LIMIT", 200)), "cairn.ai requests per user per UTC day (0 = unlimited)")
+	aiMaxTokens := fs.Int("ai-max-tokens", int(envInt64Or("CAIRN_AI_MAX_TOKENS", 4096)), "max_tokens cap per cairn.ai request")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -51,6 +55,13 @@ func runServe(args []string) error {
 		MCPURL:             *mcpURL,
 		NtfyURL:            *ntfyURL,
 		NtfyToken:          *ntfyToken,
+
+		AnthropicAPIKey: *anthropicAPIKey,
+		// Undocumented: point cairn.ai at a proxy or a fake (e2e tests).
+		AnthropicBaseURL: os.Getenv("CAIRN_ANTHROPIC_BASE_URL"),
+		AIModel:          *aiModel,
+		AIDailyLimit:     *aiDailyLimit,
+		AIMaxTokens:      *aiMaxTokens,
 	})
 	if err != nil {
 		return err

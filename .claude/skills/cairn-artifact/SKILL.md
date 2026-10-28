@@ -8,9 +8,10 @@ description: Build and publish web artifacts (single-page apps with optional sha
 An artifact is a directory with an `index.html` (plus any relative assets),
 hosted at a stable URL by a Cairn server. Each published *version* owns a
 shared SQLite database and a file storage that all viewers of that version
-read and write through `cairn.js`. Read `cairnjs-reference.md` in this skill
-directory before writing code that uses the shared database, file storage or
-user APIs.
+read and write through `cairn.js`. Pages can also call Claude with
+`cairn.ai` when the server has an Anthropic API key. Read
+`cairnjs-reference.md` in this skill directory before writing code that uses
+the shared database, file storage, user or AI APIs.
 
 ## Prerequisites
 
@@ -173,5 +174,8 @@ back to the artifact id. So to find "the artifact from this session":
   database; keep the database for structured rows that reference file paths.
 - Do not store secrets in artifact files or the shared database: everything is
   readable by all users of the server (and by anyone, if public).
+- `cairn.ai` (Claude from the page) works for signed-in viewers only, within
+  a daily quota, and only when the server has an Anthropic key: check
+  `cairn.ai.status()` and keep the page usable without it.
 - On errors the CLI exits non-zero with a message on stderr; `--json` output
   goes to stdout.
