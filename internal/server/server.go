@@ -49,6 +49,14 @@ type Config struct {
 	// NtfyToken, when set, is sent as a bearer token: a self-hosted ntfy
 	// with access control.
 	NtfyToken string
+
+	// AI runtime (cairn.ai in cairn.js, ai.go). Without an Anthropic API key
+	// POST /api/artifacts/{id}/ai answers 503.
+	AnthropicAPIKey  string
+	AnthropicBaseURL string // default https://api.anthropic.com (tests, proxies)
+	AIModel          string // default model, the latest Sonnet
+	AIDailyLimit     int    // requests per user per UTC day; <= 0 = unlimited
+	AIMaxTokens      int    // max_tokens cap (and default) per request
 }
 
 func (c *Config) applyDefaults() {
@@ -76,6 +84,15 @@ func (c *Config) applyDefaults() {
 	if c.Logger == nil {
 		c.Logger = slog.Default()
 	}
+	if c.AnthropicBaseURL == "" {
+		c.AnthropicBaseURL = anthropicBaseURL
+	}
+	if c.AIModel == "" {
+		c.AIModel = defaultAIModel
+	}
+	if c.AIMaxTokens <= 0 {
+		c.AIMaxTokens = 4096
+	}
 }
 
 // Server is the assembled application.
@@ -95,6 +112,12 @@ type Server struct {
 	httpClient     *http.Client
 
 	notifyWG sync.WaitGroup // background comment notifications (notify.go)
+
+	// Anthropic Messages endpoint (overridable by tests), its client and the
+	// per-user daily quota.
+	anthropicURL string
+	aiClient     *http.Client
+	ai           aiQuota
 
 	tmpl     *template.Template
 	tmplOnce sync.Once
@@ -130,6 +153,9 @@ func New(cfg Config) (*Server, error) {
 		googleAuthURL:  googleAuthURL,
 		googleTokenURL: googleTokenURL,
 		httpClient:     &http.Client{Timeout: 15 * time.Second},
+
+		anthropicURL: strings.TrimRight(cfg.AnthropicBaseURL, "/") + "/v1/messages",
+		aiClient:     &http.Client{}, // per-call deadline: aiCallTimeout
 	}
 	if u, err := url.Parse(cfg.BaseURL); err == nil && u.Scheme == "https" {
 		s.secure = true

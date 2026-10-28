@@ -112,3 +112,65 @@ await cairn.db.migrate('001-import-v1', [
     {sql: 'INSERT INTO items (body) VALUES (?)', params: [body]})),
 ]);
 ```
+
+## AI (Claude)
+
+When the server runs with an Anthropic API key, pages can call Claude (the
+Cairn counterpart of `window.claude` in Claude Artifacts). The request goes
+through the server, which holds the key.
+
+```js
+const st = await cairn.ai.status();
+// {enabled, model, models, maxTokens, dailyLimit, remaining}
+// remaining: -1 = unlimited; null when signed out; {enabled: false} in debug
+// mode or when the server has no key
+
+const text = await cairn.ai.ask('Summarize these notes:\n' + notes, {
+  system: 'Answer in one short paragraph.',  // optional
+  maxTokens: 500,                            // optional, clamped by the server
+  model: 'claude-haiku-5-5',                 // optional, one of st.models
+});
+
+const reply = await cairn.ai.chat([         // multi-turn: first role is 'user'
+  {role: 'user', content: 'Suggest a name for a book club.'},
+  {role: 'assistant', content: 'The Page Turners.'},
+  {role: 'user', content: 'Something shorter?'},
+], {system: 'Be playful.'});
+
+const full = await cairn.ai.complete({prompt: 'Hi', max_tokens: 100});
+// {text, model, usage: {input_tokens, output_tokens}, stop_reason}
+```
+
+`content` may also be an array of Messages API content blocks (`text`,
+`image`, `document`). `ask`/`chat` resolve to the concatenated text; use
+`complete` to see `stop_reason` (`max_tokens` = cut short, `refusal` =
+declined).
+
+Errors reject with an `Error` whose `.status` tells why: 401 signed out (call
+`cairn.login()`), 429 daily quota reached, 503 AI not configured on the
+server, 502 Anthropic error (message included), 400/413 invalid or too large
+(200 KB) request. In debug mode every call rejects with "cairn.ai needs a
+Cairn server".
+
+```js
+const st = await cairn.ai.status();
+button.hidden = !(st && st.enabled);
+button.onclick = async () => {
+  out.textContent = '…';
+  try {
+    out.textContent = await cairn.ai.ask(input.value);
+  } catch (e) {
+    out.textContent = e.status === 401 ? 'Sign in to ask Claude.' : e.message;
+  }
+};
+```
+
+Cautions:
+- Signed-in viewers only: anonymous visitors of a public artifact cannot use
+  it. Gate the UI on `status()` and keep the page useful without AI.
+- Each call spends one request of the viewer's daily quota (`remaining`);
+  avoid calling on page load or in loops.
+- The prompt goes to Anthropic, and the page (hence every viewer) sees it:
+  never embed secrets or data the viewer should not see in prompts or
+  system prompts. Treat the answer as untrusted text (render with
+  `textContent`, not `innerHTML`).

@@ -26,7 +26,14 @@
  *   await cairn.files.download(path, {version}?)  → Blob, or null when absent
  *   await cairn.files.remove(path)            delete a file
  *   cairn.files.url(path, {version}?)         direct URL (remote; null in debug)
- *   cairn.login()                 redirect to the login page and back
+ *   await cairn.ai.ask(prompt, {system, maxTokens, model}?)    → text (Claude)
+ *   await cairn.ai.chat([{role, content}...], {system, maxTokens, model}?) → text
+ *   await cairn.ai.complete({prompt|messages, system, max_tokens, model})
+ *                                 → {text, model, usage, stop_reason}
+ *   await cairn.ai.status()       {enabled, model, remaining, ...}; null signed out
+ *     (cairn.ai uses the server's Anthropic key: signed-in users only, daily
+ *     quota; errors carry .status: 401 signed out, 429 quota, 503 no key)
+ *   cairn.login()               redirect to the login page and back
  */
 (function (global) {
   'use strict';
@@ -96,6 +103,36 @@
       return api(fileURL(path), { method: 'DELETE' }).then(function () { return true; });
     },
   };
+
+  // aiPost calls the server's Claude proxy. Unlike api(), a 401 is an error
+  // (the caller needs to sign in), and every error carries the HTTP status.
+  function aiPost(body) {
+    if (!isRemote) {
+      return Promise.reject(new Error('cairn.ai needs a Cairn server: it calls Claude ' +
+        'with the server\'s API key, which debug mode does not have'));
+    }
+    return fetch('/api/artifacts/' + artifactId + '/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(function (resp) {
+      return resp.json().catch(function () { return {}; }).then(function (data) {
+        if (resp.ok) return data;
+        var err = new Error(data.error || ('HTTP ' + resp.status));
+        err.status = resp.status;
+        throw err;
+      });
+    });
+  }
+
+  // aiBody adds the camelCase options of ask/chat to a request body.
+  function aiBody(body, opts) {
+    opts = opts || {};
+    if (opts.system) body.system = opts.system;
+    if (opts.maxTokens) body.max_tokens = opts.maxTokens;
+    if (opts.model) body.model = opts.model;
+    return body;
+  }
 
   // ------------------------------------------------------------------- debug
   var DEBUG_USER = { id: 0, name: 'Debug', email: 'debug@localhost', isAdmin: true };
@@ -395,6 +432,29 @@
       remove: function (path) { return backend.removeFile(path); },
       url: function (path, opts) {
         return isRemote ? fileURL(path, opts && opts.version) : null;
+      },
+    },
+    ai: {
+      ask: function (prompt, opts) {
+        if (prompt == null) return Promise.reject(new Error('cairn.ai.ask needs a prompt'));
+        return aiPost(aiBody({ prompt: String(prompt) }, opts)).then(function (r) { return r.text; });
+      },
+      chat: function (messages, opts) {
+        return aiPost(aiBody({ messages: messages }, opts)).then(function (r) { return r.text; });
+      },
+      complete: function (body) {
+        // Accept the camelCase spelling ask/chat use; the server refuses
+        // unknown fields.
+        var b = Object.assign({}, body);
+        if (b.maxTokens !== undefined) {
+          if (b.max_tokens === undefined) b.max_tokens = b.maxTokens;
+          delete b.maxTokens;
+        }
+        return aiPost(b);
+      },
+      status: function () {
+        if (!isRemote) return Promise.resolve({ enabled: false });
+        return api('/api/me/ai');
       },
     },
   };
