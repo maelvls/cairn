@@ -22,7 +22,8 @@ gofmt -l . && go vet ./...
   Embedded migrations in `migrations/*.sql` run at open. `layout.go` defines
   the data dir: `content/{artifactID}/{contentDir}/` for extracted uploads,
   `dbs/{artifactID}/{versionID}.db` for shared databases,
-  `files/{artifactID}/{versionID}/` for per-version file storage —
+  `files/{artifactID}/{versionID}/` for per-version file storage, and
+  `thumbs/{artifactID}/{versionID}.{webp,jpg,png}` for gallery thumbnails —
   deliberately separate so re-uploads never touch data.
 - `internal/auth/` — bcrypt passwords, hand-rolled HS256 JWT (claims include
   `tkv` = token_version for instant revocation), API keys
@@ -35,14 +36,19 @@ gofmt -l . && go vet ./...
   `/artifacts/{id}` 302→ `/artifacts/{id}/{vid}/` (canonical, trailing slash)
   so relative paths resolve; SPA fallback only for extension-less
   `Accept: text/html` requests. `web/` holds embedded assets: `login.html`,
-  `gallery.html` (`/`, every signed-in user's home: cards with live iframe
-  previews, pins, drop-to-publish), `shell.html` (the viewer at `/shared/…`:
-  toolbar + side panel with details/versions, comments, data, source; polls
-  versions to follow new pushes), `admin.html` (users and API keys),
-  `ui.css`/`ui.js` (shared chrome and helpers, served at `/_ui/`; vanilla JS,
-  no build step, templates pass state as `{{.Boot}}`), `cairn.js` (client
+  `gallery.html` (`/`, every signed-in user's home: cards with captured
+  thumbnails, else live iframe previews, pins, drop-to-publish),
+  `shell.html` (the viewer at `/shared/…`: toolbar + side panel with
+  details/versions, comments, data, source; polls versions to follow new
+  pushes; captures the missing thumbnail of the version it shows),
+  `admin.html` (users and API keys), `ui.css`/`ui.js` (shared chrome and
+  helpers, served at `/_ui/`; vanilla JS, no build step, templates pass state
+  as `{{.Boot}}`), `html2canvas.min.js` (vendored html2canvas 1.4.1, MIT,
+  unmodified npm `dist/` file; provenance in `web.go`), `cairn.js` (client
   lib; falls back to sql.js-in-browser with user `{id: 0, name: "Debug"}`
   when not served by Cairn).
+- `internal/server/handlers_thumbnails.go` — thumbnail upload/serving and the
+  freshness rule used by the artifact list.
 - `internal/server/handlers_comments.go` — comment threads (flat: replies
   point at the root, resolution lives on the root; `via` records web, api or
   mcp). `handlers_source.go` — read-only views for the viewer: published
@@ -72,6 +78,10 @@ gofmt -l . && go vet ./...
   (`SwapVersionContent`) + RemoveAll of the old dir. Never write into a live
   content dir.
 - Never classify SQL as read/write by parsing — connection-level only.
+- Thumbnails are derived from a version's content: re-uploading or deleting
+  the version deletes them, and one older than the version's `updated_at` is
+  treated as absent (404, not listed). They are captured in the browser, so
+  the server never renders artifacts itself.
 - Uploaded zips: `fs.ValidPath` names only, no symlinks, decompressed-size
   budget, `index.html` required at root (single wrapping top dir is stripped).
   A lone `.html` upload (no zip signature) becomes `index.html`.

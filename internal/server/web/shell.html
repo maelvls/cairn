@@ -337,6 +337,84 @@
   setInterval(poll, 5000);
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { poll(); refreshComments(); } });
 
+  // -------------------------------------------------------- thumbnails
+  // The gallery shows a captured image of each artifact's latest version
+  // rather than a live iframe. Signed-in viewers capture it here when the
+  // version has none (a re-upload deletes it): html2canvas renders the
+  // frame's document as a 1280×800 desktop viewport, uploaded as 640×400.
+  // Best effort: at most once per version content per page load, when the
+  // browser is idle, failures only logged with console.debug.
+  const THUMB_W = 640, THUMB_H = 400, captured = new Set();
+  const showing = v => {
+    try {
+      return frame.contentDocument.readyState === 'complete' && frame.contentWindow.location.pathname.startsWith(fullURL(v));
+    } catch { return false; }
+  };
+  let html2canvas;
+  const loadHtml2canvas = () => html2canvas ||= new Promise((resolve, reject) => {
+    const s = h('script', {src: '/_ui/html2canvas.min.js'});
+    s.onload = () => window.html2canvas ? resolve(window.html2canvas) : reject(new Error('html2canvas missing'));
+    s.onerror = () => { html2canvas = null; reject(new Error('html2canvas did not load')); };
+    document.head.append(s);
+  });
+  function scheduleThumb() {
+    const v = S.current, key = v.id + '@' + v.updatedAt;
+    // A load event of a page we already left does not count.
+    if (!me || captured.has(key) || !showing(v)) return;
+    captured.add(key);
+    // Let the page settle (fonts, data, first animations), then wait for
+    // an idle moment: rendering runs on the thread the artifact shares.
+    const idle = window.requestIdleCallback ? fn => requestIdleCallback(fn, {timeout: 3000}) : fn => setTimeout(fn, 0);
+    setTimeout(() => idle(() => captureThumb(v).catch(e => console.debug('cairn: thumbnail skipped:', e))), 1500);
+  }
+  frame.addEventListener('load', scheduleThumb);
+  scheduleThumb(); // the first load may have finished while ui.js downloaded
+
+  async function captureThumb(v) {
+    const url = base + '/versions/' + v.id + '/thumbnail';
+    const head = await fetch(url, {method: 'HEAD', cache: 'no-cache'});
+    if (head.ok) return; // fresh: the server hides thumbnails older than the content
+    // Still this version, loaded, and not a page the artifact navigated to?
+    if (S.current.id !== v.id || !showing(v)) return;
+    const doc = frame.contentDocument;
+    // html2canvas clones the whole DOM: huge pages keep the live preview.
+    if (doc.getElementsByTagName('*').length > 8000) throw new Error('page too large');
+    const render = await loadHtml2canvas();
+    const shot = await render(doc.documentElement, {
+      x: 0, y: 0, scrollX: 0, scrollY: 0, width: 1280, height: 800,
+      windowWidth: 1280, windowHeight: 800, scale: THUMB_W / 1280,
+      useCORS: true, logging: false,
+    });
+    // Cover-crop from the top onto the exact thumbnail size.
+    const out = h('canvas', {width: THUMB_W, height: THUMB_H});
+    const k = Math.max(THUMB_W / shot.width, THUMB_H / shot.height);
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, THUMB_W, THUMB_H);
+    ctx.drawImage(shot, (THUMB_W - shot.width * k) / 2, 0, shot.width * k, shot.height * k);
+    // WebGL canvases, videos and nested frames come out empty: a blank
+    // image would be worse than the live preview.
+    if (blank(ctx)) throw new Error('blank capture');
+    const encode = type => new Promise(resolve => out.toBlob(resolve, type, 0.8));
+    let blob = await encode('image/webp');
+    if (!blob || blob.type !== 'image/webp') blob = await encode('image/jpeg'); // Safari encodes PNG instead
+    if (!blob) throw new Error('canvas encoding failed');
+    // updatedAt: the server refuses the capture if the content was replaced meanwhile.
+    const resp = await fetch(url + '?updatedAt=' + encodeURIComponent(v.updatedAt),
+      {method: 'PUT', headers: {'Content-Type': blob.type}, body: blob});
+    if (!resp.ok) throw new Error('upload: HTTP ' + resp.status);
+  }
+  // blank: nearly every sampled pixel has the top-left pixel's color.
+  function blank(ctx) {
+    const d = ctx.getImageData(0, 0, THUMB_W, THUMB_H).data;
+    let same = 0, n = 0;
+    for (let i = 0; i < d.length; i += 4 * 97) {
+      n++;
+      if (Math.abs(d[i] - d[0]) + Math.abs(d[i + 1] - d[1]) + Math.abs(d[i + 2] - d[2]) < 24) same++;
+    }
+    return same / n > 0.995;
+  }
+
   // ------------------------------------------------------------- panel
   function panelTabs() {
     return [

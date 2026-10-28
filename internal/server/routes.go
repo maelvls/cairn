@@ -65,6 +65,8 @@ func (s *Server) routes() {
 	mux.HandleFunc("PATCH /api/artifacts/{id}/versions/{vid}", s.requireAuth(s.withArtifact(s.handleUpdateVersionMeta)))
 	mux.HandleFunc("DELETE /api/artifacts/{id}/versions/{vid}", s.requireAuth(s.withArtifact(s.handleDeleteVersion)))
 	mux.HandleFunc("GET /api/artifacts/{id}/versions/{vid}/source", s.publicAware(s.handleSourceList))
+	mux.HandleFunc("GET /api/artifacts/{id}/versions/{vid}/thumbnail", s.publicAware(s.handleThumbnailGet))
+	mux.HandleFunc("PUT /api/artifacts/{id}/versions/{vid}/thumbnail", s.requireAuth(s.withArtifact(s.handleThumbnailPut)))
 
 	// Per-user pins
 	mux.HandleFunc("PUT /api/artifacts/{id}/pin", s.requireAuth(s.withArtifact(s.handlePin)))

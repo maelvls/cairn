@@ -289,7 +289,12 @@ func (s *Server) serveUIAsset(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "no-cache")
+	if name == "html2canvas.min.js" {
+		// Vendored at a fixed version: it only changes with Cairn itself.
+		w.Header().Set("Cache-Control", "public, max-age=604800")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
 	w.Write(data)
 }
 
