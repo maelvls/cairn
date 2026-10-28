@@ -26,6 +26,8 @@ func runServe(args []string) error {
 	googleClientID := fs.String("google-client-id", envOr("CAIRN_GOOGLE_CLIENT_ID", ""), "Google OAuth client id: replaces email/password sign-in with Google (needs --base-url)")
 	googleClientSecret := fs.String("google-client-secret", envOr("CAIRN_GOOGLE_CLIENT_SECRET", ""), "Google OAuth client secret")
 	mcpURL := fs.String("mcp-url", envOr("CAIRN_MCP_URL", ""), "external URL of the MCP endpoint when a proxy serves it elsewhere (default <base-url>/mcp); OAuth tokens are bound to it")
+	ntfyURL := fs.String("ntfy-url", envOr("CAIRN_NTFY_URL", "https://ntfy.sh"), "ntfy server for comment notifications; users pick their topic in the gallery")
+	ntfyToken := fs.String("ntfy-token", envOr("CAIRN_NTFY_TOKEN", ""), "ntfy access token, for a self-hosted ntfy with access control (prefer the env var)")
 	maxQueryRows := fs.Int("max-query-rows", int(envInt64Or("CAIRN_MAX_QUERY_ROWS", 10000)), "max rows returned per query")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -47,6 +49,8 @@ func runServe(args []string) error {
 		GoogleClientID:     *googleClientID,
 		GoogleClientSecret: *googleClientSecret,
 		MCPURL:             *mcpURL,
+		NtfyURL:            *ntfyURL,
+		NtfyToken:          *ntfyToken,
 	})
 	if err != nil {
 		return err

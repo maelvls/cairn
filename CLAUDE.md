@@ -45,7 +45,11 @@ gofmt -l . && go vet ./...
   when not served by Cairn).
 - `internal/server/handlers_comments.go` — comment threads (flat: replies
   point at the root, resolution lives on the root; `via` records web, api or
-  mcp). `handlers_source.go` — read-only views for the viewer: published
+  mcp). `notify.go` — comment notifications over ntfy: per-user topic
+  (`users.ntfy_topic`, `/api/me/settings`), recipients from
+  `store.CommentNotifyTargets`, published in a goroutine (`s.notifyWG`) so
+  ntfy never fails a comment; tests use a fake ntfy via `s.httpClient`.
+  `handlers_source.go` — read-only views for the viewer: published
   files, and `db/tables` (query_only pool, never creates a database).
 - `internal/server/mcp.go` — MCP endpoint (`POST /mcp`, stateless
   Streamable HTTP, hand-rolled JSON-RPC). Tools replay `/api` routes

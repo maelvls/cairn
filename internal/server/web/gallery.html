@@ -90,7 +90,11 @@
   .welcome h3{font-size:20px}
   .welcome ol{margin:1rem 0 0 1.2rem; display:grid; gap:.9rem; color:var(--muted)}
   .welcome li code{display:block; margin-top:.4rem}
-  @media (max-width:560px){ .who, .topbar kbd{display:none} .search{flex:1} }
+  .notify-test{display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; font-family:var(--mono); font-size:12px; color:var(--faint)}
+  .notify-test .ok{color:var(--accent)}
+  .notify-test .err{color:var(--danger)}
+  /* Narrow screens: sign out stays reachable from the user menu. */
+  @media (max-width:560px){ #signout, .topbar kbd{display:none} .who{max-width:10ch} .search{flex:1} }
 </style>
 </head>
 <body>
@@ -113,8 +117,8 @@
       <input class="input" id="q" type="search" placeholder="Search artifacts" autocomplete="off">
       <kbd>/</kbd>
     </label>
-    <span class="who" title="{{.User.Email}}">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</span>
-    <a class="btn ghost small" href="/logout">sign out</a>
+    <button class="who" id="who" title="{{.User.Email}}" aria-haspopup="menu">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</button>
+    <a class="btn ghost small" id="signout" href="/logout">sign out</a>
   </header>
 
   <main>
@@ -428,6 +432,57 @@
     const thumbs = out.querySelectorAll('.thumb[data-src]');
     if (thumbs[0]) { sizer.disconnect(); sizer.observe(thumbs[0]); }
     for (const t of thumbs) if (!t.querySelector('iframe')) lazy.observe(t);
+  }
+
+  // ---------------------------------------------------------- user menu
+  document.getElementById('who').addEventListener('click', e => menu(e.currentTarget, [
+    {label: 'Notifications…', icon: 'bell', fn: notifications},
+    '-',
+    {label: 'Sign out', icon: 'logout', href: '/logout'},
+  ]));
+
+  // Comment notifications go to the user's own ntfy topic (notify.go).
+  async function notifications() {
+    let st;
+    try { st = await api('/api/me/settings'); } catch (e) { fail(e); return; }
+    const ntfy = st.ntfyUrl.replace(/\/+$/, '');
+    const status = h('span');
+    const subscribe = h('a', {target: '_blank', rel: 'noopener'});
+    const topicOf = form => form.elements.topic.value.trim();
+    const showLink = form => {
+      const t = topicOf(form);
+      subscribe.hidden = !t;
+      subscribe.href = ntfy + '/' + encodeURIComponent(t);
+      subscribe.textContent = 'open ' + ntfy.replace(/^https?:\/\//, '') + '/' + t;
+    };
+    const v = await ask({
+      title: 'Notifications',
+      text: ['Get a push notification for new comments on your artifacts, the ones you pinned, and the threads you wrote in. Install the ',
+        h('a', {href: 'https://ntfy.sh/docs/subscribe/phone/', target: '_blank', rel: 'noopener'}, 'ntfy app'),
+        ', subscribe to a topic of your own, and enter it here. Anyone who knows a topic can read it: pick one that is hard to guess.'],
+      ok: 'Save',
+      fields: [{name: 'topic', label: 'ntfy topic (empty: no notifications)', value: st.ntfyTopic,
+        placeholder: 'cairn-' + Math.random().toString(36).slice(2, 12)}],
+      extra: form => {
+        form.elements.topic.addEventListener('input', () => showLink(form));
+        showLink(form);
+        const test = h('button.btn.small', {type: 'button', onclick: async () => {
+          const t = topicOf(form);
+          if (!t) { status.className = 'err'; status.textContent = 'enter a topic first'; return; }
+          status.className = ''; status.textContent = 'sending…';
+          try {
+            await post('/api/me/settings/test-notification', {ntfyTopic: t});
+            status.className = 'ok'; status.textContent = '✓ sent: check the ntfy app';
+          } catch (e) { status.className = 'err'; status.textContent = '✗ ' + e.message; }
+        }}, icon('bell'), 'Send test');
+        return h('div.notify-test', test, status, subscribe);
+      },
+    });
+    if (!v) return;
+    try {
+      st = await patch('/api/me/settings', {ntfyTopic: v.topic.trim()});
+      toast(st.ntfyTopic ? 'Comment notifications go to ntfy topic ' + st.ntfyTopic : 'Comment notifications off');
+    } catch (e) { fail(e); }
   }
 
   // ------------------------------------------------------------- wiring
