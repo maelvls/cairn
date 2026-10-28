@@ -4,14 +4,17 @@ import (
 	"archive/zip"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
+	"github.com/aloisdeniel/cairn/internal/store"
 	"github.com/google/uuid"
 )
 
@@ -30,12 +33,13 @@ func (s *Server) handleUploadVersion(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	v, err := s.store.CreateVersion(a.ID, name, changelog, contentDir)
+	v, err := s.store.CreateVersion(a.ID, name, changelog, contentDir, requestUser(r).ID)
 	if err != nil {
 		os.RemoveAll(s.layout.ContentDir(a.ID, contentDir))
 		s.writeStoreError(w, err, "version")
 		return
 	}
+	s.describeFromTitle(a, contentDir)
 	s.log.Info("version uploaded", "artifact", a.ID, "version", v.ID, "seq", v.Seq, "by", requestUser(r).Email)
 	writeJSON(w, http.StatusCreated, v)
 }
@@ -69,6 +73,7 @@ func (s *Server) handleReplaceVersion(w http.ResponseWriter, r *http.Request) {
 	// Open file handles on the old dir keep serving until closed (POSIX);
 	// new requests resolve the new pointer.
 	os.RemoveAll(s.layout.ContentDir(v.ArtifactID, prev))
+	s.describeFromTitle(a, contentDir)
 	v, _ = s.store.VersionByID(v.ArtifactID, v.ID)
 	s.log.Info("version replaced", "artifact", v.ArtifactID, "version", v.ID, "by", requestUser(r).Email)
 	writeJSON(w, http.StatusOK, v)
@@ -85,7 +90,7 @@ func (s *Server) receiveUpload(w http.ResponseWriter, r *http.Request, artifactI
 	defer r.MultipartForm.RemoveAll()
 	name = r.FormValue("name")
 	changelog = r.FormValue("changelog")
-	file, _, err := r.FormFile("archive")
+	file, header, err := r.FormFile("archive")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "missing 'archive' zip file field")
 		return
@@ -94,7 +99,13 @@ func (s *Server) receiveUpload(w http.ResponseWriter, r *http.Request, artifactI
 
 	contentDir = uuid.NewString()
 	dest := s.layout.ContentDir(artifactID, contentDir)
-	if err := s.extractZip(file, dest); err != nil {
+	extract := s.extractZip
+	if isHTMLUpload(file, header.Filename) {
+		// A lone HTML page (dropped in the browser, saved from a chat)
+		// becomes the version's index.html.
+		extract = s.extractHTML
+	}
+	if err := extract(file, dest); err != nil {
 		os.RemoveAll(dest)
 		status := http.StatusBadRequest
 		if !errors.Is(err, errNoIndex) && !errors.Is(err, errZipEntry) {
@@ -172,6 +183,62 @@ func (s *Server) extractZip(file io.ReaderAt, dest string) error {
 		return errNoIndex
 	}
 	return nil
+}
+
+// isHTMLUpload tells a single HTML page from a zip: an .html/.htm name and
+// no zip signature.
+func isHTMLUpload(file io.ReaderAt, filename string) bool {
+	ext := strings.ToLower(path.Ext(filename))
+	if ext != ".html" && ext != ".htm" {
+		return false
+	}
+	magic := make([]byte, 4)
+	n, _ := file.ReadAt(magic, 0)
+	return string(magic[:n]) != "PK\x03\x04"
+}
+
+// extractHTML stores a single uploaded HTML page as dest/index.html.
+func (s *Server) extractHTML(file io.ReaderAt, dest string) error {
+	size, err := readerSize(file)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return err
+	}
+	_, err = copyCapped(filepath.Join(dest, "index.html"), io.NewSectionReader(file, 0, size), s.maxUploadBytes())
+	return err
+}
+
+var titleRE = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+// describeFromTitle gives an artifact without a description the <title> of
+// the index.html just uploaded, so the gallery has something to show.
+func (s *Server) describeFromTitle(a *store.Artifact, contentDir string) {
+	if a.Description != "" {
+		return
+	}
+	f, err := os.Open(filepath.Join(s.layout.ContentDir(a.ID, contentDir), "index.html"))
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	head := make([]byte, 64<<10)
+	n, _ := io.ReadFull(f, head)
+	m := titleRE.FindSubmatch(head[:n])
+	if m == nil {
+		return
+	}
+	title := strings.Join(strings.Fields(html.UnescapeString(string(m[1]))), " ")
+	if title == "" || title == a.Name {
+		return
+	}
+	if r := []rune(title); len(r) > 300 {
+		title = string(r[:300])
+	}
+	if err := s.store.UpdateArtifact(a.ID, a.Name, title, a.Public); err == nil {
+		a.Description = title
+	}
 }
 
 // commonRootDir returns "dir/" when every entry lives under a single

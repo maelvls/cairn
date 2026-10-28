@@ -121,7 +121,7 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	public := req.Public != nil && *req.Public
-	a, err := s.store.CreateArtifact(req.Name, req.Description, public)
+	a, err := s.store.CreateArtifact(req.Name, req.Description, public, requestUser(r).ID)
 	if err != nil {
 		s.writeStoreError(w, err, "artifact")
 		return
@@ -130,8 +130,10 @@ func (s *Server) handleCreateArtifact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, a)
 }
 
+// handleListArtifacts lists artifacts, most recently updated first, as the
+// gallery shows them: latest version, counts and the caller's pins.
 func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
-	as, err := s.store.ListArtifacts()
+	as, err := s.store.ArtifactSummaries(requestUser(r).ID)
 	if err != nil {
 		s.writeStoreError(w, err, "artifacts")
 		return
@@ -147,9 +149,24 @@ func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
 		as = filtered
 	}
 	if as == nil {
-		as = []*store.Artifact{}
+		as = []*store.ArtifactSummary{}
 	}
 	writeJSON(w, http.StatusOK, paginate(r, as))
+}
+
+func (s *Server) handlePin(w http.ResponseWriter, r *http.Request) {
+	a, u := requestArtifact(r), requestUser(r)
+	var err error
+	if r.Method == http.MethodDelete {
+		err = s.store.Unpin(u.ID, a.ID)
+	} else {
+		err = s.store.Pin(u.ID, a.ID)
+	}
+	if err != nil {
+		s.writeStoreError(w, err, "pin")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"pinned": r.Method != http.MethodDelete})
 }
 
 func (s *Server) handleGetArtifact(w http.ResponseWriter, r *http.Request) {

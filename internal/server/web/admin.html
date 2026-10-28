@@ -62,7 +62,11 @@
     background:none; border:0; color:var(--muted); padding:6px 10px; cursor:pointer;
     border-radius:6px; transition:color .18s ease, background-color .18s ease;
   }
-  nav button:hover{color:var(--text)}
+  nav button:hover, nav a.navlink:hover{color:var(--text)}
+  nav a.navlink{
+    font-family:var(--mono); font-size:12.5px; text-decoration:none;
+    color:var(--muted); padding:6px 10px; border-radius:6px;
+  }
   nav button.active{color:var(--text); background:var(--accent-tint); box-shadow:inset 0 -1px 0 var(--accent)}
   .spacer{flex:1}
   .chip{font-family:var(--mono); font-size:12px; color:var(--faint); white-space:nowrap}
@@ -187,8 +191,8 @@
     </span>
     <h1 class="word">cairn<small>admin</small></h1>
     <nav>
-      <button data-tab="artifacts" class="active">artifacts</button>
-      <button data-tab="users">users</button>
+      <a class="navlink" href="/">artifacts</a>
+      <button data-tab="users" class="active">users</button>
       <button data-tab="keys">api keys</button>
     </nav>
     <span class="spacer"></span>
@@ -197,15 +201,8 @@
   </header>
 
   <main>
-    <section id="artifacts" class="active">
-      <p class="kicker">01 / artifacts</p>
-      <h2>Artifacts</h2>
-      <p class="hint">Everything hosted by this server. Click a name to open the shared view.</p>
-      <div id="artifactList"></div>
-    </section>
-
-    <section id="users">
-      <p class="kicker">02 / users</p>
+    <section id="users" class="active">
+      <p class="kicker">01 / users</p>
       <h2>Users</h2>
       <p class="hint">{{if .Google}}Users sign in with the Google account of this email address.{{else}}New accounts have no password — the user chooses one at first sign-in.{{end}}</p>
       <div id="userList"></div>
@@ -218,7 +215,7 @@
     </section>
 
     <section id="keys">
-      <p class="kicker">03 / api keys</p>
+      <p class="kicker">02 / api keys</p>
       <h2>API keys</h2>
       <p class="hint">Keys authenticate as their user. The token is shown once at creation.</p>
       <div id="keyList"></div>
@@ -293,81 +290,6 @@
     });
     t.appendChild(tr);
     return t;
-  }
-
-  // ------------------------------------------------------------- artifacts
-  async function loadArtifacts() {
-    const box = $('#artifactList');
-    const artifacts = await api('/api/artifacts');
-    box.innerHTML = '';
-    if (!artifacts.length) { box.innerHTML = '<p class="empty">No artifacts yet — push one with the CLI.</p>'; return; }
-    const t = table(['name', 'id', 'visibility', 'updated', '']);
-    for (const a of artifacts) {
-      const tr = document.createElement('tr');
-      const name = document.createElement('div');
-      const link = document.createElement('a');
-      link.href = '/shared/' + a.id; link.target = '_blank';
-      link.textContent = a.name; link.style.color = 'var(--accent)';
-      name.appendChild(link);
-      if (a.description) {
-        const d = document.createElement('div');
-        d.className = 'sub'; d.textContent = a.description;
-        name.appendChild(d);
-      }
-      tr.appendChild(td(name));
-      tr.appendChild(td(a.id, 'mono'));
-      tr.appendChild(td(pill(a.public ? 'public' : 'private', a.public ? 'public' : '')));
-      tr.appendChild(td((a.updatedAt || '').slice(0, 10), 'mono'));
-      const actions = document.createElement('div');
-      actions.className = 'actions';
-      actions.append(
-        btn('versions', '', () => toggleVersions(tr, a)),
-        btn(a.public ? 'make private' : 'make public', '', async () => {
-          try { await patch('/api/artifacts/' + a.id, {public: !a.public}); loadArtifacts(); } catch (e) { fail(e); }
-        }),
-        btn('delete', 'danger', async () => {
-          if (!confirm('Delete artifact "' + a.name + '" and all its versions and data?')) return;
-          try { await del('/api/artifacts/' + a.id); flash('artifact deleted'); loadArtifacts(); } catch (e) { fail(e); }
-        }),
-      );
-      tr.appendChild(td(actions));
-      t.appendChild(tr);
-    }
-    box.appendChild(t);
-  }
-
-  async function toggleVersions(row, artifact) {
-    const existing = row.parentElement.querySelector('tr.versions[data-for="' + artifact.id + '"]');
-    if (existing) { existing.remove(); return; }
-    const versions = await api('/api/artifacts/' + artifact.id + '/versions');
-    const tr = document.createElement('tr');
-    tr.className = 'versions';
-    tr.dataset.for = artifact.id;
-    const cell = document.createElement('td');
-    cell.colSpan = 5;
-    if (!versions.length) cell.innerHTML = '<span class="empty">no versions</span>';
-    for (const v of versions) {
-      const line = document.createElement('div');
-      line.className = 'mono';
-      line.style.padding = '.15rem 0';
-      const open = document.createElement('a');
-      open.href = '/artifacts/' + artifact.id + '/' + v.id + '/';
-      open.target = '_blank';
-      open.style.color = 'var(--accent)';
-      open.textContent = '#' + v.seq;
-      line.append(open, document.createTextNode(
-        '  ' + v.id + '  ' + (v.name || '—') + '  ' + (v.createdAt || '').slice(0, 16).replace('T', ' ') +
-        (v.changelog ? '  · ' + v.changelog : '')));
-      const rm = btn('delete', 'danger', async () => {
-        if (!confirm('Delete version #' + v.seq + ' and its database?')) return;
-        try { await del('/api/artifacts/' + artifact.id + '/versions/' + v.id); tr.remove(); flash('version deleted'); } catch (e) { fail(e); }
-      });
-      rm.style.marginLeft = '.6rem';
-      line.appendChild(rm);
-      cell.appendChild(line);
-    }
-    tr.appendChild(cell);
-    row.after(tr);
   }
 
   // ----------------------------------------------------------------- users
@@ -483,7 +405,7 @@
     try {
       const me = await api('/api/me');
       $('#who').textContent = me.email;
-      await Promise.all([loadArtifacts(), loadUsers(), loadKeys()]);
+      await Promise.all([loadUsers(), loadKeys()]);
     } catch (e) { /* redirected to login */ }
   })();
 </script>

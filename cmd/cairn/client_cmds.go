@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/aloisdeniel/cairn/internal/client"
+	"github.com/aloisdeniel/cairn/internal/store"
 	"github.com/aloisdeniel/cairn/internal/versiondb"
 	"golang.org/x/term"
 )
@@ -89,7 +90,7 @@ func runLogin(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := saveConfig(cliConfig{Host: c.Host, Token: out.Token}); err != nil {
+	if err := saveLogin(c.Host, out.Token); err != nil {
 		return err
 	}
 	fmt.Printf("logged in to %s as %s\n", c.Host, out.User.Email)
@@ -148,7 +149,7 @@ func browserLogin(host string) error {
 	if err != nil {
 		return err
 	}
-	if err := saveConfig(cliConfig{Host: c.Host, Token: token}); err != nil {
+	if err := saveLogin(c.Host, token); err != nil {
 		return err
 	}
 	fmt.Printf("logged in to %s as %s\n", c.Host, me.Email)
@@ -408,41 +409,89 @@ func artifactDelete(args []string) error {
 	return nil
 }
 
+// genericDirs are build output folders: an artifact named after one of them
+// says nothing, so `cairn push` names it after the parent folder instead.
+var genericDirs = map[string]bool{"dist": true, "build": true, "out": true, "public": true, "site": true, "www": true, "html": true, ".": true}
+
+// defaultArtifactName names a new artifact after the pushed directory.
+func defaultArtifactName(dir string) string {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		abs = dir
+	}
+	name := filepath.Base(abs)
+	if genericDirs[strings.ToLower(name)] {
+		if parent := filepath.Base(filepath.Dir(abs)); parent != "/" && parent != "." {
+			name = parent
+		}
+	}
+	return name
+}
+
 func runPush(args []string) error {
 	fs := flag.NewFlagSet("push", flag.ExitOnError)
-	artifact := fs.String("artifact", "", "target artifact id or name (required)")
-	create := fs.Bool("create", false, "create the artifact when it does not exist")
-	public := fs.Bool("public", false, "with --create: make the new artifact public")
+	artifact := fs.String("artifact", "", "target artifact id or name (default: the artifact this directory was last pushed to, else a new one named after it)")
+	create := fs.Bool("create", false, "create the --artifact when it does not exist")
+	public := fs.Bool("public", false, "when creating: make the new artifact public")
 	name := fs.String("name", "", "version name")
 	changelog := fs.String("changelog", "", "version changelog")
 	overwrite := fs.String("overwrite", "", "replace this version id ('latest' targets the newest) instead of creating a new version")
+	openFlag := fs.Bool("open", false, "open the viewer in the browser afterwards")
 	jsonOut := fs.Bool("json", false, "JSON output")
 	lead, rest := splitLeadingArg(args)
 	if err := fs.Parse(rest); err != nil {
 		return err
 	}
 	dir := leadOrArg(lead, fs)
-	if dir == "" || *artifact == "" {
-		return fmt.Errorf("usage: cairn push <dir> --artifact <id|name> [--create] [--name v1] [--changelog ...] [--overwrite <vid|latest>]")
+	if dir == "" {
+		return fmt.Errorf("usage: cairn push <dir> [--artifact <id|name> [--create]] [--name v1] [--changelog ...] [--overwrite <vid|latest>] [--open]")
 	}
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		return fmt.Errorf("%s is not a directory", dir)
 	}
-	if _, err := os.Stat(dir + "/index.html"); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
 		return fmt.Errorf("%s does not contain an index.html", dir)
 	}
 	c, err := apiClient()
 	if err != nil {
 		return err
 	}
-	a, err := c.ResolveArtifact(*artifact)
-	if err != nil {
-		if !*create {
-			return fmt.Errorf("%w (use --create to create it)", err)
-		}
-		a, err = c.CreateArtifact(*artifact, "", *public)
+	var a *store.Artifact
+	switch {
+	case *artifact != "":
+		a, err = c.ResolveArtifact(*artifact)
 		if err != nil {
-			return err
+			if !*create {
+				return fmt.Errorf("%w (use --create to create it)", err)
+			}
+			a, err = c.CreateArtifact(*artifact, "", *public)
+			if err != nil {
+				return err
+			}
+		}
+	default:
+		// Like re-publishing the same file in Claude: the same directory
+		// goes to the same artifact.
+		if id := pushedArtifact(c.Host, dir); id != "" {
+			if a, err = c.GetArtifact(id); err != nil {
+				var apiErr *client.APIError
+				if !errors.As(err, &apiErr) || apiErr.Status != http.StatusNotFound {
+					return err
+				}
+				a = nil // deleted since: start over
+			}
+		}
+		if a == nil {
+			if *overwrite != "" {
+				return fmt.Errorf("--overwrite needs --artifact: %s was never pushed to %s", dir, c.Host)
+			}
+			a, err = c.CreateArtifact(defaultArtifactName(dir), "", *public)
+			if err != nil {
+				return err
+			}
+			if !*jsonOut {
+				fmt.Printf("created artifact %s (%s)\n", a.Name, a.ID)
+			}
 		}
 	}
 	versionID := ""
@@ -462,16 +511,212 @@ func runPush(args []string) error {
 	if err != nil {
 		return err
 	}
+	rememberPush(c.Host, dir, a.ID)
+	viewer := fmt.Sprintf("%s/shared/%s", c.Host, a.ID)
+	if *openFlag {
+		openBrowser(viewer)
+	}
 	if *jsonOut {
 		return printJSON(map[string]any{
-			"artifact": a,
-			"version":  v,
-			"url":      fmt.Sprintf("%s/artifacts/%s/%s/", c.Host, a.ID, v.ID),
+			"artifact":   a,
+			"version":    v,
+			"url":        fmt.Sprintf("%s/artifacts/%s/%s/", c.Host, a.ID, v.ID),
+			"viewer_url": viewer,
 		})
 	}
-	fmt.Printf("pushed %s as version #%d (%s)\n", dir, v.Seq, v.ID)
+	fmt.Printf("pushed %s as version #%d of %s (%s)\n", dir, v.Seq, a.Name, v.ID)
+	fmt.Printf("  viewer:      %s\n", viewer)
 	fmt.Printf("  full screen: %s/artifacts/%s/%s/\n", c.Host, a.ID, v.ID)
-	fmt.Printf("  shared:      %s/shared/%s\n", c.Host, a.ID)
+	if cs, err := c.ListComments(a.ID, "open"); err == nil {
+		if n := countThreads(cs); n > 0 {
+			fmt.Printf("  %d open comment thread(s): cairn comments list %s\n", n, a.ID)
+		}
+	}
+	return nil
+}
+
+func countThreads(cs []*store.Comment) int {
+	n := 0
+	for _, c := range cs {
+		if c.ParentID == "" {
+			n++
+		}
+	}
+	return n
+}
+
+// cairn comments: read and answer the feedback people leave in the viewer.
+
+func runComments(args []string) error {
+	const usage = `usage: cairn comments list <artifact> [--all|--resolved] [--json]
+       cairn comments add <artifact> "<text>" [--reply <comment-id>] [--resolve]
+       cairn comments resolve <artifact> <comment-id> [--reopen]`
+	if len(args) == 0 {
+		return errors.New(usage)
+	}
+	switch args[0] {
+	case "list", "ls":
+		return commentsList(args[1:])
+	case "add", "reply":
+		return commentsAdd(args[1:])
+	case "resolve":
+		return commentsResolve(args[1:])
+	}
+	return errors.New(usage)
+}
+
+// positionals parses fs over args, accepting flags before, between and
+// after positional arguments.
+func positionals(fs *flag.FlagSet, args []string) ([]string, error) {
+	var pos []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return pos, nil
+		}
+		pos = append(pos, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+}
+
+func commentsList(args []string) error {
+	fs := flag.NewFlagSet("comments list", flag.ExitOnError)
+	all := fs.Bool("all", false, "include resolved threads")
+	resolved := fs.Bool("resolved", false, "only resolved threads")
+	jsonOut := fs.Bool("json", false, "JSON output")
+	pos, err := positionals(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return errors.New("usage: cairn comments list <artifact> [--all|--resolved] [--json]")
+	}
+	c, err := apiClient()
+	if err != nil {
+		return err
+	}
+	a, err := c.ResolveArtifact(pos[0])
+	if err != nil {
+		return err
+	}
+	status := "open"
+	if *all {
+		status = ""
+	} else if *resolved {
+		status = "resolved"
+	}
+	cs, err := c.ListComments(a.ID, status)
+	if err != nil {
+		return err
+	}
+	if *jsonOut {
+		return printJSON(cs)
+	}
+	if len(cs) == 0 {
+		fmt.Printf("no %scomments on %s\n", map[string]string{"open": "open ", "resolved": "resolved "}[status], a.Name)
+		return nil
+	}
+	seq := map[string]int{}
+	if vs, err := c.ListVersions(a.ID); err == nil {
+		for _, v := range vs {
+			seq[v.ID] = v.Seq
+		}
+	}
+	for _, cm := range cs {
+		indent := ""
+		if cm.ParentID != "" {
+			indent = "    ↳ "
+		}
+		meta := []string{cm.Author, strings.Replace(cm.CreatedAt[:min(16, len(cm.CreatedAt))], "T", " ", 1)}
+		if n := seq[cm.VersionID]; n > 0 {
+			meta = append(meta, fmt.Sprintf("on #%d", n))
+		}
+		if cm.Via == "mcp" {
+			meta = append(meta, "agent")
+		}
+		if cm.ResolvedAt != "" {
+			meta = append(meta, "resolved")
+		}
+		if cm.ParentID == "" {
+			fmt.Println()
+		}
+		fmt.Printf("%s[%s] %s\n", indent, cm.ID, strings.Join(meta, " · "))
+		for _, line := range strings.Split(cm.Body, "\n") {
+			fmt.Printf("%s  %s\n", strings.Repeat(" ", len([]rune(indent))), line)
+		}
+	}
+	return nil
+}
+
+func commentsAdd(args []string) error {
+	fs := flag.NewFlagSet("comments add", flag.ExitOnError)
+	reply := fs.String("reply", "", "id of a comment of the thread to reply to")
+	version := fs.String("version", "", "version the comment is about (default: latest)")
+	resolve := fs.Bool("resolve", false, "resolve the thread after replying")
+	jsonOut := fs.Bool("json", false, "JSON output")
+	pos, err := positionals(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 2 {
+		return errors.New(`usage: cairn comments add <artifact> "<text>" [--reply <comment-id>] [--resolve]`)
+	}
+	c, err := apiClient()
+	if err != nil {
+		return err
+	}
+	a, err := c.ResolveArtifact(pos[0])
+	if err != nil {
+		return err
+	}
+	vid, err := resolveVersionID(c, a.ID, *version)
+	if err != nil {
+		return err
+	}
+	cm, err := c.AddComment(a.ID, pos[1], *reply, vid)
+	if err != nil {
+		return err
+	}
+	if *resolve && cm.ParentID != "" {
+		if _, err := c.ResolveComment(a.ID, cm.ID, true); err != nil {
+			return err
+		}
+	}
+	if *jsonOut {
+		return printJSON(cm)
+	}
+	fmt.Printf("commented on %s (%s)\n", a.Name, cm.ID)
+	return nil
+}
+
+func commentsResolve(args []string) error {
+	fs := flag.NewFlagSet("comments resolve", flag.ExitOnError)
+	reopen := fs.Bool("reopen", false, "reopen the thread instead")
+	pos, err := positionals(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 2 {
+		return errors.New("usage: cairn comments resolve <artifact> <comment-id> [--reopen]")
+	}
+	c, err := apiClient()
+	if err != nil {
+		return err
+	}
+	a, err := c.ResolveArtifact(pos[0])
+	if err != nil {
+		return err
+	}
+	if _, err := c.ResolveComment(a.ID, pos[1], !*reopen); err != nil {
+		return err
+	}
+	if *reopen {
+		fmt.Println("reopened")
+	} else {
+		fmt.Println("resolved")
+	}
 	return nil
 }
 
@@ -719,7 +964,8 @@ func filesDelete(args []string) error {
 func runOpen(args []string) error {
 	fs := flag.NewFlagSet("open", flag.ExitOnError)
 	version := fs.String("version", "", "specific version id")
-	shared := fs.Bool("shared", false, "print the shared (framed) URL")
+	shared := fs.Bool("shared", false, "print the viewer URL (versions, comments, data) instead of the full-screen page")
+	browser := fs.Bool("browser", false, "also open the URL in the browser")
 	lead, rest := splitLeadingArg(args)
 	if err := fs.Parse(rest); err != nil {
 		return err
@@ -749,5 +995,8 @@ func runOpen(args []string) error {
 		url += "/"
 	}
 	fmt.Println(url)
+	if *browser {
+		openBrowser(url)
+	}
 	return nil
 }

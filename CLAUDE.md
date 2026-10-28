@@ -35,9 +35,18 @@ gofmt -l . && go vet ./...
   `/artifacts/{id}` 302→ `/artifacts/{id}/{vid}/` (canonical, trailing slash)
   so relative paths resolve; SPA fallback only for extension-less
   `Accept: text/html` requests. `web/` holds embedded assets: `login.html`,
-  `shell.html` (iframe wrapper), `admin.html` (vanilla-JS admin UI over the
-  JSON APIs), `cairn.js` (client lib; falls back to sql.js-in-browser with
-  user `{id: 0, name: "Debug"}` when not served by Cairn).
+  `gallery.html` (`/`, every signed-in user's home: cards with live iframe
+  previews, pins, drop-to-publish), `shell.html` (the viewer at `/shared/…`:
+  toolbar + side panel with details/versions, comments, data, source; polls
+  versions to follow new pushes), `admin.html` (users and API keys),
+  `ui.css`/`ui.js` (shared chrome and helpers, served at `/_ui/`; vanilla JS,
+  no build step, templates pass state as `{{.Boot}}`), `cairn.js` (client
+  lib; falls back to sql.js-in-browser with user `{id: 0, name: "Debug"}`
+  when not served by Cairn).
+- `internal/server/handlers_comments.go` — comment threads (flat: replies
+  point at the root, resolution lives on the root; `via` records web, api or
+  mcp). `handlers_source.go` — read-only views for the viewer: published
+  files, and `db/tables` (query_only pool, never creates a database).
 - `internal/server/mcp.go` — MCP endpoint (`POST /mcp`, stateless
   Streamable HTTP, hand-rolled JSON-RPC). Tools replay `/api` routes
   in-process through `s.mux` with the caller's user in the context
@@ -65,6 +74,11 @@ gofmt -l . && go vet ./...
 - Never classify SQL as read/write by parsing — connection-level only.
 - Uploaded zips: `fs.ValidPath` names only, no symlinks, decompressed-size
   budget, `index.html` required at root (single wrapping top dir is stripped).
+  A lone `.html` upload (no zip signature) becomes `index.html`.
+- A version's `updated_at` moves only when its files change (re-upload):
+  viewers reload the page on it. Metadata edits leave it alone. Timestamps
+  are fixed-width RFC 3339 with milliseconds (`store.now`), so they sort as
+  strings.
 - Google sign-in (`internal/server/google.go`) replaces passwords when a
   client id is configured; it only ever signs in to existing accounts, by
   verified email. The ID token comes from Google's token endpoint directly, so

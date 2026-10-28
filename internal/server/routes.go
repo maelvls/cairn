@@ -64,8 +64,20 @@ func (s *Server) routes() {
 	mux.HandleFunc("PUT /api/artifacts/{id}/versions/{vid}", s.requireAuth(s.withArtifact(s.handleReplaceVersion)))
 	mux.HandleFunc("PATCH /api/artifacts/{id}/versions/{vid}", s.requireAuth(s.withArtifact(s.handleUpdateVersionMeta)))
 	mux.HandleFunc("DELETE /api/artifacts/{id}/versions/{vid}", s.requireAuth(s.withArtifact(s.handleDeleteVersion)))
+	mux.HandleFunc("GET /api/artifacts/{id}/versions/{vid}/source", s.publicAware(s.handleSourceList))
+
+	// Per-user pins
+	mux.HandleFunc("PUT /api/artifacts/{id}/pin", s.requireAuth(s.withArtifact(s.handlePin)))
+	mux.HandleFunc("DELETE /api/artifacts/{id}/pin", s.requireAuth(s.withArtifact(s.handlePin)))
+
+	// Comment threads (signed-in users only, public artifacts included)
+	mux.HandleFunc("GET /api/artifacts/{id}/comments", s.requireAuth(s.withArtifact(s.handleListComments)))
+	mux.HandleFunc("POST /api/artifacts/{id}/comments", s.requireAuth(s.withArtifact(s.handleCreateComment)))
+	mux.HandleFunc("PATCH /api/artifacts/{id}/comments/{cid}", s.requireAuth(s.withArtifact(s.handleUpdateComment)))
+	mux.HandleFunc("DELETE /api/artifacts/{id}/comments/{cid}", s.requireAuth(s.withArtifact(s.handleDeleteComment)))
 
 	// Shared per-version database (raw SQL proxy)
+	mux.HandleFunc("GET /api/artifacts/{id}/versions/{vid}/db/tables", s.publicAware(s.handleDBTables))
 	mux.HandleFunc("POST /api/artifacts/{id}/versions/{vid}/db/query", s.publicAware(s.handleDBQuery))
 	mux.HandleFunc("POST /api/artifacts/{id}/versions/{vid}/db/batch", s.requireAuth(s.withArtifact(s.handleDBBatch)))
 	mux.HandleFunc("GET /api/artifacts/{id}/versions/{vid}/db/download", s.publicAware(s.handleDBDownload))
@@ -89,6 +101,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /admin", s.handleAdminPage)
 	mux.HandleFunc("GET /logout", s.handleLogoutPage)
 	mux.HandleFunc("GET /cairn.js", s.serveCairnJS)
+	mux.HandleFunc("GET /_ui/{file}", s.serveUIAsset)
 	mux.HandleFunc("GET /artifacts/{id}", s.handleArtifactRedirect)
 	mux.HandleFunc("GET /artifacts/{id}/{vid}", s.handleVersionNoSlash)
 	mux.HandleFunc("GET /artifacts/{id}/{vid}/{path...}", s.handleVersionPage)

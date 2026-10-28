@@ -3,112 +3,808 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{.Artifact.Name}} · Cairn</title>
+<title>{{if .Artifact.Description}}{{.Artifact.Description}}{{else}}{{.Artifact.Name}}{{end}} · Cairn</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B0E13'/%3E%3Crect x='11' y='7' width='10' height='4' rx='2' fill='%23C6F135'/%3E%3Crect x='8' y='14' width='16' height='4' rx='2' fill='%23C6F135' opacity='.7'/%3E%3Crect x='5' y='21' width='22' height='4' rx='2' fill='%23C6F135' opacity='.45'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/_ui/ui.css">
 <style>
-  :root{
-    --bg:#0B0E13;
-    --bg-raise:#10141C;
-    --bg-panel:#0E1219;
-    --line:rgba(148,163,184,.13);
-    --line-soft:rgba(148,163,184,.07);
-    --text:#E4E9F2;
-    --muted:#8C96A8;
-    --faint:#5A6476;
-    --accent:#C6F135;
-    --accent-dim:rgba(198,241,53,.55);
-    --accent-tint:rgba(198,241,53,.08);
-    /* generic fallbacks matter: this page is served by a self-hosted binary
-       that may run with no internet access to Google Fonts */
-    --sans:"Familjen Grotesk",-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;
-    --mono:"Fragment Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
-  }
-  *{box-sizing:border-box; margin:0; padding:0}
-  html,body{overflow-x:clip}
-  body{
-    height:100svh; display:grid; grid-template-rows:auto auto 1fr;
-    background:var(--bg); color:var(--text); font-family:var(--sans);
-    -webkit-font-smoothing:antialiased;
-  }
-  ::selection{background:var(--accent); color:#0B0E13}
+  body{height:100svh; display:grid; grid-template-rows:auto auto minmax(0,1fr); overflow:hidden}
+  /* explicit rows: the banner is often hidden, the stage still gets 1fr */
+  .topbar{grid-row:1; position:relative; gap:.45rem .7rem; padding-block:.4rem}
+  .banner{grid-row:2}
+  .stage{grid-row:3}
+  .brand b{display:none}
+  .name{min-width:0; display:grid; line-height:1.2}
+  .name h1{font-size:15px; font-weight:600; letter-spacing:.005em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .name small{font-family:var(--mono); font-size:11px; color:var(--faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  #version{width:auto; max-width:15rem; padding:5px 8px; font-size:12px}
+  .tools{display:flex; align-items:center; gap:3px; flex:none}
+  .tools .sep{width:1px; height:20px; background:var(--line); margin:0 4px}
+  .tools .btn{position:relative}
+  .tools .badge{position:absolute; top:-4px; right:-5px; font-size:9.5px; padding:2px 4px; min-width:15px}
+  .label{display:inline}
+  @media (max-width:1100px){ .tools .label{display:none} }
+  @media (max-width:700px){ .name small, #copyBtn, #reloadBtn{display:none} #version{max-width:8rem} }
 
-  /* quiet chrome: the artifact below is the star */
-  header{
-    display:flex; align-items:center; gap:.4rem .9rem; flex-wrap:wrap;
-    padding:.5rem clamp(12px,3vw,20px);
-    background:var(--bg); border-bottom:1px solid var(--line);
+  .banner{
+    display:flex; align-items:center; gap:.4rem .8rem; flex-wrap:wrap;
+    padding:.4rem clamp(12px,3vw,24px); font-family:var(--mono); font-size:12px;
+    color:var(--warn); background:rgba(232,194,106,.07); border-bottom:1px solid rgba(232,194,106,.2);
   }
-  .mark svg{width:20px; height:20px; display:block}
-  .name{font-size:15px; font-weight:600; letter-spacing:.01em; min-width:0}
-  .name a{color:inherit; text-decoration:none}
-  .name a:hover{color:var(--accent)}
-  .desc{
-    color:var(--faint); font-size:12.5px; min-width:0;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:32ch;
+  .banner .btn{color:var(--text)}
+
+  .stage{display:flex; min-height:0; position:relative}
+  .frame{flex:1; min-width:0; position:relative; background:#fff}
+  .frame iframe{position:absolute; inset:0; width:100%; height:100%; border:0; background:#fff}
+  .frame .veil{position:absolute; inset:0; display:grid; place-items:center; background:rgb(11 14 19 / .35); opacity:0; pointer-events:none; transition:opacity .2s ease}
+  .frame.loading .veil{opacity:1}
+
+  /* -------------------------------------------------------- side panel */
+  aside{
+    width:min(420px,100vw); flex:none; display:flex; flex-direction:column; min-height:0;
+    background:var(--bg-panel); border-left:1px solid var(--line);
   }
-  .spacer{flex:1}
-  .chip{
-    font-family:var(--mono); font-size:11px; color:var(--faint); white-space:nowrap;
-    overflow:hidden; text-overflow:ellipsis; max-width:22ch;
+  @media (max-width:900px){
+    aside{position:absolute; inset:0 0 0 auto; z-index:10; box-shadow:var(--shadow)}
   }
-  select{
-    font-family:var(--mono); font-size:12px; padding:4px 8px; max-width:52vw;
-    background:var(--bg-raise); color:var(--text);
-    border:1px solid var(--line); border-radius:6px; outline:none;
-    transition:border-color .15s ease;
+  .tabs{display:flex; align-items:center; gap:2px; padding:6px 8px; border-bottom:1px solid var(--line); flex:none}
+  .tabs [role=tab]{
+    display:inline-flex; align-items:center; gap:.35rem;
+    font-family:var(--mono); font-size:12px; color:var(--muted);
+    background:none; border:0; padding:6px 9px; border-radius:6px; cursor:pointer;
   }
-  select:focus{border-color:var(--accent-dim)}
-  .btn{
-    font-family:var(--mono); font-size:11px;
-    color:var(--muted); border:1px solid var(--line); border-radius:6px;
-    padding:4px 10px; text-decoration:none; white-space:nowrap;
-    transition:color .15s ease, border-color .15s ease;
+  .tabs [role=tab] svg{width:14px; height:14px}
+  .tabs [role=tab]:hover{color:var(--text)}
+  .tabs [role=tab][aria-selected=true]{color:var(--text); background:var(--bg-hover); box-shadow:inset 0 -1px 0 var(--accent)}
+  .tabs .badge{font-size:9.5px; padding:2px 4px; min-width:15px}
+  .pane{flex:1; overflow:auto; min-height:0; overscroll-behavior:contain}
+  .sec{padding:1rem 1.1rem; border-bottom:1px solid var(--line-soft); display:grid; gap:.65rem}
+  .sec:last-child{border-bottom:0}
+  .sec > h3{font-family:var(--mono); font-size:11px; font-weight:400; letter-spacing:.08em; color:var(--faint); display:flex; align-items:center; gap:.5rem}
+  .sec > h3 .spacer{flex:1}
+  .about h2{font-size:19px; font-weight:600; letter-spacing:-.01em; line-height:1.25}
+  .kv{display:grid; grid-template-columns:auto minmax(0,1fr); gap:.3rem .9rem; font-size:13px}
+  .kv dt{font-family:var(--mono); font-size:11px; color:var(--faint); padding-top:2px}
+  .kv dd{color:var(--muted); overflow-wrap:anywhere}
+  .kv dd.mono{font-size:11.5px}
+  .linkrow{display:flex; gap:.4rem; align-items:center}
+  .linkrow .input{font-size:11.5px; color:var(--muted)}
+  .hint{font-size:12.5px; color:var(--faint)}
+  .hint code{font-family:var(--mono); font-size:11.5px; color:var(--muted)}
+
+  .versions{display:grid; gap:2px}
+  .ver{
+    position:relative; display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:.15rem .7rem; align-items:start;
+    padding:.55rem .6rem; border-radius:8px; border:1px solid transparent;
   }
-  .btn:hover, .btn:focus-visible{color:var(--accent); border-color:var(--accent-dim)}
-  .meta{
-    display:flex; gap:.2rem 1.25rem; align-items:baseline; flex-wrap:wrap;
-    padding:.3rem clamp(12px,3vw,20px);
-    font-family:var(--mono); font-size:11px;
-    color:var(--faint); background:var(--bg-panel); border-bottom:1px solid var(--line-soft);
-    min-width:0;
+  .ver:hover{background:var(--bg-raise)}
+  .ver.current{border-color:var(--accent-dim); background:var(--accent-tint)}
+  .ver .seq{font-family:var(--mono); font-size:12px; color:var(--muted); padding-top:1px}
+  .ver.current .seq{color:var(--accent)}
+  .ver .what{min-width:0}
+  .ver .what b{font-weight:600; font-size:13.5px}
+  .ver .what p{font-size:12.5px; color:var(--muted); white-space:pre-wrap; overflow-wrap:anywhere}
+  .ver .what .by{font-family:var(--mono); font-size:10.5px; color:var(--faint); margin-top:.15rem}
+  .ver a.cover{position:absolute; inset:0}
+  .ver .btn{position:relative; z-index:1}
+  .tag{font-family:var(--mono); font-size:10px; letter-spacing:.06em; color:var(--accent); margin-left:.35rem}
+
+  /* ---------------------------------------------------------- comments */
+  .cfilters{display:flex; gap:2px}
+  .cfilters button{font-family:var(--mono); font-size:11.5px; color:var(--muted); background:none; border:0; padding:3px 8px; border-radius:5px; cursor:pointer}
+  .cfilters button[aria-pressed=true]{color:var(--text); background:var(--bg-hover)}
+  .threads{display:grid; gap:.7rem; padding:1rem 1.1rem}
+  .thread{border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-raise); overflow:hidden}
+  .thread.resolved{opacity:.66}
+  .thread.resolved:hover{opacity:1}
+  .cmt{padding:.7rem .8rem; display:grid; gap:.35rem}
+  .cmt + .cmt{border-top:1px solid var(--line-soft); padding-left:1.6rem}
+  .cmt header{display:flex; align-items:center; gap:.45rem; min-width:0}
+  .cmt header b{font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .cmt header time{font-family:var(--mono); font-size:10.5px; color:var(--faint); white-space:nowrap}
+  .cmt header .spacer{flex:1}
+  .cmt header .btn{padding:3px}
+  .cmt header .btn svg{width:13px; height:13px}
+  .cmt .text{font-size:13.5px; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5}
+  .cmt .text a{color:var(--accent)}
+  .vtag{font-family:var(--mono); font-size:10px; color:var(--faint); border:1px solid var(--line); border-radius:4px; padding:0 4px; background:none; cursor:pointer}
+  .vtag:hover{color:var(--text); border-color:var(--line-strong)}
+  .thread footer{display:flex; gap:.3rem; padding:.4rem .6rem; border-top:1px solid var(--line-soft); background:var(--bg-panel)}
+  .thread .resolvedby{font-family:var(--mono); font-size:10.5px; color:var(--accent); padding:.4rem .8rem 0}
+  .composer{position:sticky; bottom:0; padding:.8rem 1.1rem; background:var(--bg-panel); border-top:1px solid var(--line); display:grid; gap:.5rem}
+  .composer .row{display:flex; align-items:center; gap:.5rem}
+  .composer textarea{min-height:3.6rem}
+  .thread .composer{position:static; padding:.6rem; border-top:1px solid var(--line-soft)}
+
+  /* -------------------------------------------------------------- data */
+  .tables{display:grid; gap:2px}
+  .tables button{
+    display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.1rem .6rem; text-align:left;
+    background:none; border:1px solid transparent; border-radius:7px; padding:.45rem .6rem; cursor:pointer; color:var(--text);
   }
-  .meta span{overflow-wrap:anywhere}
-  .meta b{color:var(--muted); font-weight:400}
-  iframe{border:0; width:100%; height:100%; background:#fff}
+  .tables button:hover{background:var(--bg-raise)}
+  .tables button[aria-pressed=true]{border-color:var(--accent-dim); background:var(--accent-tint)}
+  .tables b{font-family:var(--mono); font-size:12.5px; font-weight:400}
+  .tables span{font-family:var(--mono); font-size:11px; color:var(--faint)}
+  .tables small{grid-column:1/-1; font-family:var(--mono); font-size:10.5px; color:var(--faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .result{overflow:auto; max-height:22rem; border:1px solid var(--line); border-radius:8px; background:var(--bg)}
+  .result table{border-collapse:collapse; font-family:var(--mono); font-size:11.5px; min-width:100%}
+  .result th{position:sticky; top:0; background:var(--bg-raise); color:var(--faint); font-weight:400; text-align:left; padding:5px 9px; border-bottom:1px solid var(--line); white-space:nowrap}
+  .result td{padding:4px 9px; border-bottom:1px solid var(--line-soft); max-width:16rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--muted)}
+  .result td.null{color:var(--faint); font-style:italic}
+  .result .note{padding:.5rem .7rem; font-family:var(--mono); font-size:11.5px; color:var(--faint)}
+  #sql{font-family:var(--mono); font-size:12px; min-height:4.2rem}
+  .files{display:grid}
+  .files a, .files button{
+    display:grid; grid-template-columns:16px minmax(0,1fr) auto; gap:.55rem; align-items:center;
+    padding:.4rem .5rem; border-radius:6px; text-decoration:none; color:var(--muted);
+    background:none; border:0; text-align:left; cursor:pointer; font-family:var(--mono); font-size:12px;
+  }
+  .files a:hover, .files button:hover{background:var(--bg-raise); color:var(--text)}
+  .files button[aria-pressed=true]{background:var(--accent-tint); color:var(--text)}
+  .files svg{width:15px; height:15px; color:var(--faint)}
+  .files span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .files small{font-size:10.5px; color:var(--faint)}
+
+  /* ------------------------------------------------------------ source */
+  .code{
+    margin:0; overflow:auto; max-height:none; border:1px solid var(--line); border-radius:8px; background:var(--bg);
+    font-family:var(--mono); font-size:11.5px; line-height:1.55; counter-reset:ln; padding:.5rem 0;
+  }
+  .code span{display:block; padding:0 .8rem 0 0; white-space:pre}
+  .code span::before{counter-increment:ln; content:counter(ln); display:inline-block; width:3.2em; padding-right:.8em; text-align:right; color:var(--faint); user-select:none}
+  .preview-img{max-width:100%; border:1px solid var(--line); border-radius:8px; background:repeating-conic-gradient(#1a1f29 0 25%, #12161e 0 50%) 0 0/16px 16px}
 </style>
 </head>
 <body>
-  <header>
-    <span class="mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="All artifacts" title="All artifacts">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
         <rect x="11" y="7"  width="10" height="4" rx="2" fill="#C6F135"/>
         <rect x="8"  y="14" width="16" height="4" rx="2" fill="#C6F135" opacity=".7"/>
         <rect x="5"  y="21" width="22" height="4" rx="2" fill="#C6F135" opacity=".45"/>
       </svg>
-    </span>
-    <h1 class="name"><a href="/shared/{{.Artifact.ID}}" title="latest version">{{.Artifact.Name}}</a></h1>
-    {{if .Artifact.Description}}<p class="desc" title="{{.Artifact.Description}}">{{.Artifact.Description}}</p>{{end}}
+      <b>cairn</b>
+    </a>
+    <div class="name">
+      <h1 id="title">{{if .Artifact.Description}}{{.Artifact.Description}}{{else}}{{.Artifact.Name}}{{end}}</h1>
+      <small id="subtitle">{{.Artifact.Name}}</small>
+    </div>
+    <span id="visibility"></span>
     <span class="spacer"></span>
-    <label class="chip" for="version">version</label>
-    <select id="version" onchange="location.href='/shared/{{.Artifact.ID}}/'+this.value">
-      {{range .Versions}}
-      <option value="{{.ID}}" {{if .Current}}selected{{end}}>
-        #{{.Seq}}{{if .Name}} · {{.Name}}{{end}} · {{printf "%.10s" .CreatedAt}}
-      </option>
-      {{end}}
-    </select>
-    <a class="btn" href="/artifacts/{{.Artifact.ID}}/{{.Version.ID}}/" target="_blank" rel="noopener">full screen ↗</a>
-    {{if .User}}<span class="chip" title="{{.User.Email}}">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</span>
-    {{else}}<a class="btn" href="/login?next=/shared/{{.Artifact.ID}}/{{.Version.ID}}">sign in</a>{{end}}
+    <label class="sr-only" for="version">Version</label>
+    <select class="input" id="version"></select>
+    <div class="tools" id="tools"></div>
   </header>
-  <div class="meta">
-    {{if .Version.Changelog}}<span><b>changelog</b> {{.Version.Changelog}}</span>{{end}}
-    {{range .Artifact.Resources}}<span><b>{{.Type}}</b> {{.Value}}</span>{{end}}
-    <span><b>id</b> {{.Version.ID}}</span>
+  <div class="banner" id="banner" hidden></div>
+  <div class="stage">
+    <div class="frame" id="frameBox">
+      <iframe id="frame" src="/artifacts/{{.Artifact.ID}}/{{.Version.ID}}/" title="{{.Artifact.Name}}"
+        allow="clipboard-write; fullscreen; camera; microphone; geolocation"></iframe>
+      <div class="veil"><div class="spinner"></div></div>
+    </div>
+    <aside id="panel" hidden aria-label="Artifact panel">
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div class="pane" id="pane" role="tabpanel"></div>
+    </aside>
   </div>
-  <iframe src="/artifacts/{{.Artifact.ID}}/{{.Version.ID}}/" title="{{.Artifact.Name}}"></iframe>
+
+<script src="/_ui/ui.js"></script>
+<script>
+(() => {
+  const {h, icon, api, put, del, patch, post, toast, fail, menu, ask, ago, fullDate, bytes, avatar, copy, users, userLabel, publish, onDrop} = ui;
+  const BOOT = {{.Boot}};
+  const me = BOOT.user;
+  const S = {
+    a: BOOT.artifact, versions: BOOT.versions, current: BOOT.version, follow: BOOT.follow,
+    pinned: BOOT.pinned, dir: new Map(), comments: [], cfilter: 'open',
+    tab: null, table: null, sourcePath: null,
+  };
+  const base = '/api/artifacts/' + S.a.id;
+  const latest = () => S.versions[0];
+  const fullURL = v => '/artifacts/' + S.a.id + '/' + v.id + '/';
+  const viewerURL = v => '/shared/' + S.a.id + (v ? '/' + v.id : '');
+  const titleOf = a => a.description && a.description.length <= 90 ? a.description : a.name;
+  const openThreads = () => S.comments.filter(c => !c.parentId && !c.resolvedAt).length;
+
+  // ------------------------------------------------------------ header
+  const frame = document.getElementById('frame');
+  const frameBox = document.getElementById('frameBox');
+  frame.addEventListener('load', () => frameBox.classList.remove('loading'));
+
+  function renderHeader() {
+    document.getElementById('title').textContent = titleOf(S.a);
+    document.getElementById('subtitle').textContent = S.a.name + (S.a.description && titleOf(S.a) === S.a.name ? ' · ' + S.a.description : '');
+    document.title = titleOf(S.a) + ' · Cairn';
+
+    const vis = h((me ? 'button' : 'span') + '.pill' + (S.a.public ? '.public' : ''), {
+      title: me ? (S.a.public ? 'Public: anyone with the link. Click to make private.' : 'Private: sign-in required. Click to make public.') : null,
+      onclick: me ? toggleVisibility : null,
+    }, icon(S.a.public ? 'globe' : 'lock', {width: 11, height: 11}), S.a.public ? 'public' : 'private');
+    document.getElementById('visibility').replaceChildren(vis);
+
+    const sel = document.getElementById('version');
+    sel.replaceChildren(
+      h('option', {value: ''}, `latest · #${latest().seq}${latest().name ? ' ' + latest().name : ''}`),
+      ...S.versions.map(v => h('option', {value: v.id}, `#${v.seq}${v.name ? ' · ' + v.name : ''} · ${(v.createdAt || '').slice(0, 10)}`)));
+    sel.value = S.follow ? '' : S.current.id;
+
+    const banner = document.getElementById('banner');
+    if (!S.follow && S.current.id !== latest().id) {
+      banner.replaceChildren(icon('history', {width: 14, height: 14}),
+        h('span', `Viewing version #${S.current.seq} of ${S.versions.length}; the latest is #${latest().seq}.`),
+        h('button.btn.small', {onclick: () => go(null)}, 'Go to latest'));
+      banner.hidden = false;
+    } else {
+      banner.hidden = true;
+    }
+    renderTools();
+  }
+
+  function tool(id, ic, label, attrs) {
+    return h('button.btn.ghost', {id, title: label, 'aria-label': label, ...attrs}, icon(ic), h('span.label', label));
+  }
+  function renderTools() {
+    const tabs = panelTabs();
+    const n = openThreads();
+    const els = [
+      tool('copyBtn', 'link', 'Copy link', {onclick: () => copy(location.origin + viewerURL(S.follow ? null : S.current))}),
+      tool('reloadBtn', 'refresh', 'Reload', {onclick: () => reloadFrame()}),
+      h('a.btn.ghost', {href: fullURL(S.current), target: '_blank', rel: 'noopener', title: 'Open full screen', 'aria-label': 'Open full screen'},
+        icon('external'), h('span.label', 'Full screen')),
+      h('span.sep'),
+      ...tabs.map(t => {
+        const b = tool('tab-' + t.id, t.icon, t.label, {
+          onclick: () => togglePanel(t.id), 'aria-pressed': String(S.tab === t.id),
+          class: S.tab === t.id ? 'on' : null,
+        });
+        if (t.id === 'comments' && n) b.append(h('span.badge', n));
+        return b;
+      }),
+    ];
+    if (!me) els.push(h('a.btn', {href: '/login?next=' + encodeURIComponent(location.pathname)}, 'Sign in'));
+    document.getElementById('tools').replaceChildren(...els);
+  }
+
+  // ---------------------------------------------------------- versions
+  // go(v) shows version v (null: follow the latest) without a page load.
+  function go(v, opts = {}) {
+    S.follow = !v;
+    const target = v || latest();
+    const changed = target.id !== S.current.id;
+    S.current = target;
+    const url = viewerURL(v) + location.hash;
+    if (opts.replace) history.replaceState(null, '', url); else history.pushState(null, '', url);
+    if (changed || opts.reload) loadFrame();
+    renderHeader();
+    if (S.tab && S.tab !== 'comments') renderPanel();
+  }
+  function loadFrame() {
+    frameBox.classList.add('loading');
+    frame.src = fullURL(S.current);
+  }
+  function reloadFrame() {
+    frameBox.classList.add('loading');
+    try { frame.contentWindow.location.reload(); } catch { loadFrame(); }
+  }
+  document.getElementById('version').addEventListener('change', e => {
+    go(S.versions.find(v => v.id === e.target.value) || null);
+  });
+  addEventListener('popstate', () => {
+    const vid = location.pathname.split('/')[3] || '';
+    go(S.versions.find(v => v.id === vid) || null, {replace: true});
+    openFromHash();
+  });
+
+  // Live updates: an agent republishing shows up here without a reload.
+  async function poll() {
+    if (document.hidden) return;
+    let vs;
+    try { vs = await api(base + '/versions', {anonymousOK: true}); } catch { return; }
+    if (!vs.length || JSON.stringify(vs) === JSON.stringify(S.versions)) return;
+    const prevLatest = latest(), prev = S.current;
+    const published = vs[0].id !== prevLatest.id && !S.versions.some(v => v.id === vs[0].id);
+    S.versions = vs;
+    // updatedAt only moves when a version's files are replaced.
+    if (S.follow) {
+      S.current = vs[0];
+      if (vs[0].id !== prev.id) {
+        loadFrame();
+        if (published) toast(`Version #${vs[0].seq} published${vs[0].changelog ? ': ' + vs[0].changelog : ''}`);
+      } else if (vs[0].updatedAt !== prev.updatedAt) {
+        reloadFrame();
+        toast(`Version #${vs[0].seq} was updated`);
+      }
+    } else {
+      const cur = vs.find(v => v.id === prev.id);
+      if (published) toast(`Version #${vs[0].seq} was published`, {action: {label: 'View', fn: () => go(null)}});
+      if (!cur) {
+        toast(`Version #${prev.seq} was deleted`);
+        go(null, {replace: true});
+        return;
+      }
+      S.current = cur;
+      if (cur.updatedAt !== prev.updatedAt) {
+        reloadFrame();
+        toast(`Version #${cur.seq} was updated`);
+      }
+    }
+    renderHeader();
+    if (S.tab === 'info') renderPanel();
+  }
+  setInterval(poll, 5000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { poll(); refreshComments(); } });
+
+  // ------------------------------------------------------------- panel
+  function panelTabs() {
+    return [
+      {id: 'info', icon: 'info', label: 'Details'},
+      me && {id: 'comments', icon: 'comment', label: 'Comments'},
+      {id: 'data', icon: 'database', label: 'Data'},
+      {id: 'source', icon: 'code', label: 'Source'},
+    ].filter(Boolean);
+  }
+  function togglePanel(id) { openPanel(S.tab === id ? null : id); }
+  function openPanel(id) {
+    if (id && !panelTabs().some(t => t.id === id)) id = null;
+    S.tab = id;
+    document.getElementById('panel').hidden = !id;
+    try { localStorage.setItem('cairn.viewer.tab', id || ''); } catch {}
+    history.replaceState(null, '', location.pathname + (id ? '#' + id : ''));
+    renderTools();
+    if (id) renderPanel();
+  }
+  function renderTabs() {
+    document.getElementById('tabs').replaceChildren(...panelTabs().map(t => {
+      const b = h('button', {role: 'tab', 'aria-selected': String(S.tab === t.id), onclick: () => openPanel(t.id)}, icon(t.icon), t.label);
+      if (t.id === 'comments' && openThreads()) b.append(h('span.badge', openThreads()));
+      return b;
+    }), h('span.spacer'), h('button.btn.ghost.icon', {title: 'Close panel', 'aria-label': 'Close panel', onclick: () => openPanel(null)}, icon('x')));
+  }
+  function renderPanel() {
+    renderTabs();
+    const pane = document.getElementById('pane');
+    const render = {info: infoPane, comments: commentsPane, data: dataPane, source: sourcePane}[S.tab];
+    const top = pane.scrollTop;
+    pane.replaceChildren(render());
+    pane.scrollTop = top;
+  }
+  function openFromHash() {
+    const id = location.hash.slice(1);
+    if (id && panelTabs().some(t => t.id === id)) openPanel(id);
+  }
+
+  // -------------------------------------------------------------- info
+  function infoPane() {
+    const author = S.dir.get(S.a.createdBy);
+    const frag = document.createDocumentFragment();
+    frag.append(h('section.sec.about',
+      h('h3', 'ARTIFACT', h('span.spacer'), me ? h('button.btn.small', {onclick: editArtifact}, icon('edit'), 'Edit') : null),
+      h('h2', titleOf(S.a)),
+      h('dl.kv',
+        h('dt', 'name'), h('dd.mono', S.a.name),
+        S.a.description && titleOf(S.a) !== S.a.description ? [h('dt', 'about'), h('dd', S.a.description)] : null,
+        author ? [h('dt', 'created by'), h('dd', userLabel(author))] : null,
+        h('dt', 'created'), h('dd', {title: fullDate(S.a.createdAt)}, ago(S.a.createdAt)),
+        h('dt', 'updated'), h('dd', {title: fullDate(S.a.updatedAt)}, ago(S.a.updatedAt)),
+        ...(S.a.resources || []).map(r => [h('dt', r.type), h('dd.mono', r.value)]),
+        h('dt', 'id'), h('dd.mono', S.a.id))));
+
+    if (me) {
+      const pub = h('input', {type: 'checkbox', checked: S.a.public, onchange: toggleVisibility});
+      const pin = h('input', {type: 'checkbox', checked: S.pinned, onchange: togglePin});
+      frag.append(h('section.sec',
+        h('h3', 'SHARING'),
+        h('label.switch', pub, S.a.public ? 'Public: anyone with the link can view it' : 'Private: only signed-in users can view it'),
+        h('label.switch', pin, 'Pinned to the top of my gallery')));
+    }
+
+    const link = (label, url) => h('label.field', h('span', label),
+      h('div.linkrow', h('input.input', {value: url, readOnly: true, onfocus: e => e.target.select()}),
+        h('button.btn.icon', {title: 'Copy', 'aria-label': 'Copy ' + label, onclick: () => copy(url)}, icon('link'))));
+    frag.append(h('section.sec',
+      h('h3', 'LINKS'),
+      link('viewer, always the latest version', location.origin + viewerURL(null)),
+      link(`full screen, version #${S.current.seq}`, location.origin + fullURL(S.current))));
+
+    frag.append(h('section.sec',
+      h('h3', `VERSIONS (${S.versions.length})`, h('span.spacer'),
+        me ? h('button.btn.small', {onclick: () => pickAndPublish()}, icon('upload'), 'Publish') : null),
+      h('div.versions', S.versions.map(versionItem)),
+      me ? h('p.hint', 'Drop an .html page or a .zip anywhere on this page to publish a new version.') : null));
+
+    if (me) {
+      frag.append(h('section.sec',
+        h('h3', 'DANGER ZONE'),
+        h('div', h('button.btn.danger', {onclick: deleteArtifact}, icon('trash'), 'Delete artifact'))));
+    }
+    return frag;
+  }
+
+  function versionItem(v) {
+    const by = S.dir.get(v.createdBy);
+    const isCur = v.id === S.current.id;
+    const edited = v.updatedAt && v.updatedAt !== v.createdAt;
+    return h('div.ver' + (isCur ? '.current' : ''),
+      h('a.cover', {href: viewerURL(v), 'aria-label': 'View version #' + v.seq, onclick: e => { e.preventDefault(); go(v === latest() ? null : v); }}),
+      h('span.seq', '#' + v.seq),
+      h('div.what',
+        h('b', v.name || 'version ' + v.seq, v === latest() ? h('span.tag', 'LATEST') : null, isCur ? h('span.tag', 'VIEWING') : null),
+        v.changelog ? h('p', v.changelog) : null,
+        h('div.by', [by ? 'by ' + userLabel(by) : null, h('span', {title: fullDate(v.createdAt)}, ago(v.createdAt)),
+          edited ? h('span', {title: 'content replaced ' + fullDate(v.updatedAt)}, 'updated ' + ago(v.updatedAt)) : null]
+          .filter(Boolean).flatMap((x, i) => i ? [' · ', x] : [x]))),
+      h('button.btn.ghost.icon', {title: 'Version actions', 'aria-label': 'Actions for version #' + v.seq,
+        onclick: e => menu(e.currentTarget, versionActions(v))}, icon('more')));
+  }
+  function versionActions(v) {
+    return [
+      {label: 'View', icon: 'panel', fn: () => go(v === latest() ? null : v)},
+      {label: 'Open full screen', icon: 'external', href: fullURL(v), target: '_blank'},
+      {label: 'Copy link to this version', icon: 'link', fn: () => copy(location.origin + viewerURL(v))},
+      ...(me ? ['-',
+        {label: 'Edit name and changelog…', icon: 'edit', fn: () => editVersion(v)},
+        {label: 'Replace its files…', icon: 'upload', fn: () => pickAndPublish(v)},
+        {label: 'Delete version…', icon: 'trash', danger: true, fn: () => deleteVersion(v)}] : []),
+    ];
+  }
+
+  async function editArtifact() {
+    const v = await ask({title: 'Edit artifact', ok: 'Save', fields: [
+      {name: 'description', label: 'title', value: S.a.description},
+      {name: 'name', label: 'name (used by the CLI and agents)', value: S.a.name, required: true},
+    ]});
+    if (!v) return;
+    try {
+      Object.assign(S.a, await patch(base, {name: v.name.trim(), description: v.description.trim()}));
+      renderHeader(); renderPanel();
+    } catch (e) { fail(e); }
+  }
+  async function toggleVisibility() {
+    if (!me) return;
+    try {
+      Object.assign(S.a, await patch(base, {public: !S.a.public}));
+      toast(S.a.public ? 'Now public: anyone with the link can view it' : 'Now private: sign-in required');
+      renderHeader();
+      if (S.tab === 'info') renderPanel();
+    } catch (e) { fail(e); }
+  }
+  async function togglePin() {
+    try {
+      if (S.pinned) await del(base + '/pin'); else await put(base + '/pin');
+      S.pinned = !S.pinned;
+      toast(S.pinned ? 'Pinned' : 'Unpinned');
+    } catch (e) { fail(e); }
+    if (S.tab === 'info') renderPanel();
+  }
+  async function editVersion(v) {
+    const r = await ask({title: `Version #${v.seq}`, ok: 'Save', fields: [
+      {name: 'name', label: 'name', value: v.name},
+      {name: 'changelog', label: 'changelog', type: 'textarea', value: v.changelog},
+    ]});
+    if (!r) return;
+    try {
+      Object.assign(v, await patch(base + '/versions/' + v.id, {name: r.name.trim(), changelog: r.changelog.trim()}));
+      renderHeader(); renderPanel();
+    } catch (e) { fail(e); }
+  }
+  async function deleteVersion(v) {
+    if (S.versions.length === 1) { fail('This is the only version: delete the artifact instead'); return; }
+    const ok = await ask({title: `Delete version #${v.seq}?`, danger: true, ok: 'Delete',
+      text: 'Its files, shared database and file storage are deleted. Other versions are not affected.'});
+    if (!ok) return;
+    try {
+      await del(base + '/versions/' + v.id);
+      S.versions = S.versions.filter(x => x.id !== v.id);
+      toast(`Version #${v.seq} deleted`);
+      if (S.current.id === v.id) go(null, {replace: true}); else { renderHeader(); renderPanel(); }
+    } catch (e) { fail(e); }
+  }
+  async function deleteArtifact() {
+    const ok = await ask({title: 'Delete “' + titleOf(S.a) + '”?', danger: true, ok: 'Delete',
+      text: `All ${S.versions.length} version(s), their shared databases, stored files and comments go with it. This cannot be undone.`});
+    if (!ok) return;
+    try { await del(base); location.href = '/'; } catch (e) { fail(e); }
+  }
+
+  // Publishing from the viewer: a dropped or picked .html/.zip becomes a new
+  // version, or replaces `over`'s files.
+  function pickAndPublish(over) {
+    const input = h('input', {type: 'file', accept: '.html,.htm,.zip', onchange: () => input.files[0] && publishFile(input.files[0], over)});
+    input.click();
+  }
+  async function publishFile(file, over) {
+    const next = Math.max(...S.versions.map(v => v.seq)) + 1;
+    const r = await ask({
+      title: over ? `Replace version #${over.seq}` : `Publish version #${next}`,
+      text: over ? `${file.name} replaces its files; its database and file storage stay.` : `From ${file.name}.`,
+      ok: 'Publish',
+      fields: over ? [] : [
+        {name: 'name', label: 'name', value: 'v' + next},
+        {name: 'changelog', label: 'what changed', type: 'textarea', value: ''},
+      ],
+    });
+    if (!r) return;
+    const pending = toast('Publishing…', {sticky: true});
+    try {
+      const v = await publish(file, {artifact: S.a.id, replace: over && over.id, name: r.name, changelog: r.changelog});
+      pending.remove();
+      S.versions = await api(base + '/versions');
+      if (over) {
+        if (over.id === S.current.id) { S.current = S.versions.find(x => x.id === v.id); reloadFrame(); }
+        toast(`Version #${v.seq} replaced`);
+        renderHeader();
+        if (S.tab === 'info') renderPanel();
+      } else {
+        toast(`Version #${v.seq} published`);
+        go(null, {reload: true});
+      }
+    } catch (e) { pending.remove(); fail(e); }
+  }
+  if (me) onDrop(() => `Drop to publish version #${Math.max(...S.versions.map(v => v.seq)) + 1}`,
+    () => '.html page or .zip with an index.html', f => publishFile(f));
+
+  // ---------------------------------------------------------- comments
+  async function refreshComments() {
+    if (!me || document.hidden) return;
+    try {
+      const cs = await api(base + '/comments');
+      const changed = JSON.stringify(cs) !== JSON.stringify(S.comments);
+      S.comments = cs;
+      if (!changed) return;
+      renderTools();
+      // Never re-render under someone typing a comment.
+      if (S.tab === 'comments' && !document.activeElement?.closest('#pane textarea')) renderPanel();
+      else if (S.tab) renderTabs();
+    } catch {}
+  }
+  if (me) setInterval(refreshComments, 10000);
+
+  const URL_RE = /\bhttps?:\/\/[^\s<>"')\]]+/g;
+  function richText(text) {
+    const out = h('div.text');
+    let last = 0;
+    for (const m of text.matchAll(URL_RE)) {
+      out.append(text.slice(last, m.index), h('a', {href: m[0], target: '_blank', rel: 'noopener'}, m[0]));
+      last = m.index + m[0].length;
+    }
+    out.append(text.slice(last));
+    return out;
+  }
+
+  function commentsPane() {
+    const roots = S.comments.filter(c => !c.parentId);
+    const replies = id => S.comments.filter(c => c.parentId === id);
+    const shown = roots.filter(c => S.cfilter === 'all' || (S.cfilter === 'open') === !c.resolvedAt);
+    const counts = {open: roots.filter(c => !c.resolvedAt).length, resolved: roots.filter(c => c.resolvedAt).length, all: roots.length};
+    const frag = document.createDocumentFragment();
+    frag.append(h('section.sec', {style: {paddingBottom: '.7rem'}},
+      h('h3', h('div.cfilters', ['open', 'resolved', 'all'].map(f =>
+        h('button', {'aria-pressed': String(S.cfilter === f), onclick: () => { S.cfilter = f; renderPanel(); }}, `${f} ${counts[f]}`)))),
+      h('p.hint', 'Feedback for whoever iterates on this artifact. Agents read it with the MCP tool ', h('code', 'list_comments'),
+        ' or ', h('code', 'cairn comments list'), '.')));
+    const list = h('div.threads');
+    if (!shown.length) {
+      list.append(h('div.empty', {style: {padding: '1.6rem 1rem'}},
+        h('p', S.cfilter === 'resolved' ? 'No resolved threads.' : roots.length ? 'No open threads: all caught up.' : 'No comments yet. Leave the first one below.')));
+    }
+    for (const root of shown) list.append(thread(root, replies(root.id)));
+    frag.append(list, composer(null));
+    return frag;
+  }
+
+  function thread(root, replies) {
+    const el = h('div.thread' + (root.resolvedAt ? '.resolved' : ''));
+    el.append(comment(root), ...replies.map(comment));
+    if (root.resolvedAt) {
+      const by = S.dir.get(root.resolvedBy);
+      el.append(h('div.resolvedby', `✓ resolved${by ? ' by ' + userLabel(by) : ''} ${ago(root.resolvedAt)}`));
+    }
+    const replyBox = h('div', {hidden: true});
+    el.append(h('footer',
+      h('button.btn.ghost.small', {onclick: () => {
+        replyBox.hidden = !replyBox.hidden;
+        if (!replyBox.hidden) { replyBox.replaceChildren(composer(root)); replyBox.querySelector('textarea').focus(); }
+      }}, icon('reply'), 'Reply'),
+      h('button.btn.ghost.small', {onclick: () => resolve(root, !root.resolvedAt)},
+        icon(root.resolvedAt ? 'refresh' : 'check'), root.resolvedAt ? 'Reopen' : 'Resolve')), replyBox);
+    return el;
+  }
+
+  function comment(c) {
+    const v = S.versions.find(x => x.id === c.versionId);
+    const mine = c.userId === me.id;
+    const who = c.author || 'deleted user';
+    return h('article.cmt',
+      h('header',
+        avatar(who),
+        h('b', who),
+        c.via === 'mcp' ? h('span.pill.agent', {title: 'Written by an AI agent through MCP'}, 'agent')
+          : c.via === 'api' ? h('span.pill', {title: 'Written with the CLI or the API'}, 'cli') : null,
+        v ? h('button.vtag', {title: 'Written while viewing version #' + v.seq, onclick: () => go(v === latest() ? null : v)}, '#' + v.seq) : null,
+        h('span.spacer'),
+        h('time', {datetime: c.createdAt, title: fullDate(c.createdAt) + (c.updatedAt !== c.createdAt ? ' (edited)' : '')}, ago(c.createdAt)),
+        mine || me.isAdmin ? h('button.btn.ghost', {'aria-label': 'Comment actions', onclick: e => menu(e.currentTarget, [
+          mine && {label: 'Edit…', icon: 'edit', fn: () => editComment(c)},
+          {label: 'Delete', icon: 'trash', danger: true, fn: () => deleteComment(c)},
+        ])}, icon('more')) : null),
+      richText(c.body));
+  }
+
+  function composer(parent) {
+    const ta = h('textarea.input', {
+      placeholder: parent ? 'Reply…' : `Comment on version #${S.current.seq}…`, rows: parent ? 2 : 3,
+      onkeydown: e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } },
+    });
+    const btn = h('button.btn.primary', {onclick: () => send()}, parent ? 'Reply' : 'Comment');
+    async function send() {
+      const body = ta.value.trim();
+      if (!body) { ta.focus(); return; }
+      btn.disabled = true;
+      try {
+        const c = await post(base + '/comments', {body, parentId: parent ? parent.id : '', versionId: S.current.id});
+        S.comments.push(c);
+        if (parent) parent.resolvedAt = '';
+        if (!parent && S.cfilter === 'resolved') S.cfilter = 'open';
+        ta.value = '';
+        renderTools();
+        renderPanel();
+        if (!parent) { const pane = document.getElementById('pane'); pane.scrollTop = pane.scrollHeight; }
+        refreshComments();
+      } catch (e) { fail(e); btn.disabled = false; }
+    }
+    return h('div.composer', ta, h('div.row', h('span.hint', h('kbd', '⌘'), ' ', h('kbd', 'Enter')), h('span.spacer'), btn));
+  }
+  async function resolve(root, resolved) {
+    try {
+      Object.assign(root, await patch(base + '/comments/' + root.id, {resolved}));
+      renderTools(); renderPanel();
+    } catch (e) { fail(e); }
+  }
+  async function editComment(c) {
+    const r = await ask({title: 'Edit comment', ok: 'Save', fields: [{name: 'body', label: 'comment', type: 'textarea', value: c.body}]});
+    if (!r) return;
+    try { Object.assign(c, await patch(base + '/comments/' + c.id, {body: r.body})); renderPanel(); } catch (e) { fail(e); }
+  }
+  async function deleteComment(c) {
+    const ok = await ask({title: 'Delete this comment?', danger: true, ok: 'Delete', text: c.parentId ? '' : 'Its replies are deleted too.'});
+    if (!ok) return;
+    try {
+      await del(base + '/comments/' + c.id);
+      S.comments = S.comments.filter(x => x.id !== c.id && x.parentId !== c.id);
+      renderTools(); renderPanel();
+    } catch (e) { fail(e); }
+  }
+
+  // -------------------------------------------------------------- data
+  const vbase = () => base + '/versions/' + S.current.id;
+  function resultTable(res) {
+    const box = h('div.result');
+    if (!res.columns || !res.columns.length) {
+      box.append(h('div.note', res.rowsAffected != null ? `OK · ${res.rowsAffected} row(s) affected` : 'No rows'));
+      return box;
+    }
+    box.append(h('table',
+      h('thead', h('tr', res.columns.map(c => h('th', c)))),
+      h('tbody', res.rows.map(r => h('tr', r.map(v => v === null
+        ? h('td.null', 'NULL')
+        : h('td', {title: String(typeof v === 'object' ? JSON.stringify(v) : v)}, typeof v === 'object' ? JSON.stringify(v) : String(v))))))));
+    if (!res.rows.length) box.append(h('div.note', 'No rows'));
+    if (res.truncated) box.append(h('div.note', 'Truncated: only the first rows are shown'));
+    return box;
+  }
+  const quote = n => '"' + n.replaceAll('"', '""') + '"';
+
+  function dataPane() {
+    const frag = document.createDocumentFragment();
+    const tablesBox = h('div.tables', h('div.spinner'));
+    const view = h('div');
+    frag.append(h('section.sec',
+      h('h3', `SHARED DATABASE · #${S.current.seq}`, h('span.spacer'),
+        h('a.btn.small', {href: vbase() + '/db/download', title: 'Download the SQLite file'}, icon('download'), '.db')),
+      tablesBox, view));
+    api(vbase() + '/db/tables', {anonymousOK: true}).then(tables => {
+      if (!tables.length) {
+        tablesBox.replaceChildren(h('p.hint', 'Empty: this version’s pages have not stored anything yet.'));
+        return;
+      }
+      tablesBox.replaceChildren(...tables.map(t => h('button', {
+        'aria-pressed': String(S.table === t.name),
+        onclick: e => { S.table = t.name; for (const b of tablesBox.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); showTable(t, view); },
+      }, h('b', t.name), h('span', t.type === 'view' ? 'view' : t.rows + ' row' + (t.rows === 1 ? '' : 's')),
+        h('small', t.columns.map(c => c.name).join(', ')))));
+      const sel = tables.find(t => t.name === S.table);
+      if (sel) showTable(sel, view);
+    }).catch(e => tablesBox.replaceChildren(h('p.hint', e.message)));
+
+    const sql = h('textarea.input', {id: 'sql', placeholder: 'SELECT * FROM …', spellcheck: false,
+      onkeydown: e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); run(); } }});
+    const res = h('div');
+    async function run() {
+      if (!sql.value.trim()) return;
+      res.replaceChildren(h('div.spinner'));
+      try { res.replaceChildren(resultTable(await post(vbase() + '/db/query', {sql: sql.value, params: []}))); }
+      catch (e) { res.replaceChildren(h('p.hint', {style: {color: 'var(--danger)'}}, e.message)); }
+    }
+    frag.append(h('section.sec',
+      h('h3', 'SQL'),
+      sql,
+      h('div', {style: {display: 'flex', gap: '.5rem', alignItems: 'center'}},
+        h('button.btn.primary', {onclick: run}, 'Run'), h('span.hint', h('kbd', '⌘'), ' ', h('kbd', 'Enter'),
+          me ? ' · one statement; writes change live data' : ' · read-only')),
+      res));
+
+    const filesBox = h('div.files', h('div.spinner'));
+    frag.append(h('section.sec', h('h3', `FILE STORAGE · #${S.current.seq}`), filesBox));
+    api(vbase() + '/files', {anonymousOK: true}).then(files => {
+      filesBox.replaceChildren(...(files.length ? files.map(f => h('a', {href: vbase() + '/files/' + f.path.split('/').map(encodeURIComponent).join('/'), download: f.path.split('/').pop(), title: f.path},
+        icon('file'), h('span', f.path), h('small', bytes(f.size) + ' · ' + ago(f.modifiedAt))))
+        : [h('p.hint', 'No stored files.')]));
+    }).catch(e => filesBox.replaceChildren(h('p.hint', e.message)));
+    return frag;
+  }
+  async function showTable(t, view) {
+    view.replaceChildren(h('div.spinner'));
+    try {
+      const res = await api(vbase() + '/db/query', {method: 'POST', json: {sql: `SELECT * FROM ${quote(t.name)} LIMIT 200`, params: []}, anonymousOK: true});
+      view.replaceChildren(resultTable(res), t.rows > 200 ? h('p.hint', `First 200 of ${t.rows} rows.`) : '');
+    } catch (e) { view.replaceChildren(h('p.hint', e.message)); }
+  }
+
+  // ------------------------------------------------------------ source
+  const TEXT_EXT = /\.(html?|css|m?js|json|txt|md|svg|xml|csv|ts|tsx|jsx|map|webmanifest|ya?ml|toml)$/i;
+  const IMG_EXT = /\.(png|jpe?g|gif|webp|avif|ico|bmp|svg)$/i;
+  function sourcePane() {
+    const list = h('div.files', h('div.spinner'));
+    const view = h('div');
+    const frag = document.createDocumentFragment();
+    frag.append(h('section.sec', h('h3', `PUBLISHED FILES · #${S.current.seq}`), list), h('section.sec', view));
+    api(vbase() + '/source', {anonymousOK: true}).then(files => {
+      list.replaceChildren(...files.map(f => h('button', {'aria-pressed': String(S.sourcePath === f.path), title: f.path,
+        onclick: e => { S.sourcePath = f.path; for (const b of list.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); showSource(f, view); }},
+        icon('file'), h('span', f.path), h('small', bytes(f.size)))));
+      const sel = files.find(f => f.path === S.sourcePath) || files.find(f => f.path === 'index.html');
+      if (sel) { S.sourcePath = sel.path; showSource(sel, view); [...list.children].forEach(b => b.setAttribute('aria-pressed', String(b.title === sel.path))); }
+    }).catch(e => list.replaceChildren(h('p.hint', e.message)));
+    return frag;
+  }
+  async function showSource(f, view) {
+    const url = fullURL(S.current) + f.path.split('/').map(encodeURIComponent).join('/');
+    const head = h('div', {style: {display: 'flex', alignItems: 'center', gap: '.5rem'}},
+      h('b.mono', {style: {flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}, f.path),
+      h('a.btn.small', {href: url, target: '_blank', rel: 'noopener'}, icon('external'), 'raw'));
+    if (IMG_EXT.test(f.path) && !/\.svg$/i.test(f.path)) { view.replaceChildren(head, h('img.preview-img', {src: url, alt: f.path})); return; }
+    if (!TEXT_EXT.test(f.path) || f.size > 512 * 1024) { view.replaceChildren(head, h('p.hint', 'Binary or large file: open it raw.')); return; }
+    view.replaceChildren(head, h('div.spinner'));
+    try {
+      const text = await (await fetch(url)).text();
+      view.replaceChildren(head, h('pre.code', text.replace(/\n$/, '').split('\n').map(l => h('span', l))));
+    } catch (e) { view.replaceChildren(head, h('p.hint', e.message)); }
+  }
+
+  // -------------------------------------------------------------- boot
+  addEventListener('keydown', e => {
+    if (e.target.closest('input, textarea, select, dialog') || e.metaKey || e.ctrlKey || e.altKey) return;
+    const keys = {i: 'info', c: 'comments', d: 'data', s: 'source'};
+    if (keys[e.key]) togglePanel(keys[e.key]);
+    if (e.key === 'Escape' && S.tab) openPanel(null);
+    if (e.key === 'r') reloadFrame();
+  });
+  renderHeader();
+  (async () => {
+    S.dir = await users();
+    if (me) {
+      try { S.comments = await api(base + '/comments'); } catch {}
+    }
+    renderTools();
+    let saved = '';
+    try { saved = localStorage.getItem('cairn.viewer.tab') || ''; } catch {}
+    if (location.hash.length > 1) openFromHash();
+    else if (saved) openPanel(saved);
+  })();
+})();
+</script>
 </body>
 </html>

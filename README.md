@@ -5,8 +5,11 @@
 > [aloisdeniel/cairn](https://github.com/aloisdeniel/cairn); `google-auth`,
 > the previous main branch, stays for old links). It adds Google
 > sign-in, which replaces email/password when a Google OAuth client is
-> configured (see "Google sign-in" under [Operations](#operations)), and an
-> [MCP endpoint with OAuth 2.1](#mcp) for AI clients. Releases
+> configured (see "Google sign-in" under [Operations](#operations)), an
+> [MCP endpoint with OAuth 2.1](#mcp) for AI clients, and a
+> [gallery and viewer](#gallery-and-viewer) closer to Claude Artifacts:
+> live previews, pins, comment threads that agents answer, a data and source
+> panel, and a viewer that follows new versions as they are pushed. Releases
 > are tagged `v<upstream>-google.<n>` and ship the same binaries and
 > multi-arch image as upstream:
 >
@@ -100,16 +103,44 @@ image yourself instead: `docker build -t cairn .`
 
 | URL | Meaning |
 |---|---|
+| `/` | gallery of artifacts (any signed-in user) |
 | `/artifacts/{id}` | redirects to the latest version |
 | `/artifacts/{id}/{versionId}/` | a version, full screen (canonical) |
-| `/shared/{id}` / `/shared/{id}/{versionId}` | version embedded in a shell frame with metadata and a version picker |
-| `/admin` | admin UI |
+| `/shared/{id}` | viewer, following the latest version |
+| `/shared/{id}/{versionId}` | viewer, on one version |
+| `/admin` | admin UI: users and API keys |
 | `/login`, `/logout` | session pages |
 
 Private artifacts redirect anonymous visitors to `/login?next=…`. Because a
 version is always served under its own directory URL, relative paths inside
 the SPA (`./app.js`, `fetch('data.json')`) just work; extension-less paths
 fall back to `index.html` for client-side routing, missing assets 404.
+
+### Gallery and viewer
+
+The **gallery** (`/`) shows every artifact as a card with a live preview of
+its latest version, most recently updated first: search (`/`), filters
+(pinned, mine, public, private, open comments), sort, grid or list. Each user
+pins their own artifacts to the top. Drop an `.html` page or a `.zip` on the
+page (or use "New artifact") to publish one without the CLI.
+
+The **viewer** (`/shared/{id}`) frames the artifact with a toolbar (version
+picker, copy link, full screen) and a side panel:
+
+- **Details** (`i`): title, visibility, pin, links, version history (rename,
+  replace files, delete), publish a new version by dropping a file.
+- **Comments** (`c`): threads on the artifact for signed-in users, each
+  remembering the version it was written on; replies, resolve, reopen.
+  Agents read and answer them (MCP `list_comments`/`add_comment`,
+  `cairn comments`), and their comments are marked as such.
+- **Data** (`d`): the version's tables with row counts, a table browser, a
+  SQL console, the database download and the file storage.
+- **Source** (`s`): the version's published files.
+
+Without a version in the URL the viewer follows the latest one: when an agent
+pushes a new version, or overwrites the current one, the page reloads by
+itself. Anonymous visitors of public artifacts get the viewer without
+comments and without write actions.
 
 ## Writing an artifact
 
@@ -181,15 +212,23 @@ POST   /api/auth/login                      {email, password[, confirm]}  (403 w
 GET    /api/auth/config                     {password, google}: sign-in methods
 GET    /api/me
 GET    /api/users                           directory: id, name, email (any authed user)
-GET    /api/artifacts                       ?name= ?limit= ?offset=
+GET    /api/artifacts                       ?name= ?limit= ?offset=  most recently updated first, with
+                                            latestVersion, versionCount, openComments, pinned
 POST   /api/artifacts                       {name, description, public}
 GET|PATCH|DELETE /api/artifacts/{id}
+PUT|DELETE /api/artifacts/{id}/pin          pin for the calling user
 POST   /api/artifacts/{id}/resources        {type, value}
 DELETE /api/artifacts/{id}/resources/{rid}
+GET    /api/artifacts/{id}/comments         ?status=open|resolved (default: all), oldest first
+POST   /api/artifacts/{id}/comments         {body, parentId, versionId}
+PATCH  /api/artifacts/{id}/comments/{cid}   {body} (author) and/or {resolved}
+DELETE /api/artifacts/{id}/comments/{cid}   author or admin; a root takes its replies
 GET    /api/artifacts/{id}/versions
-POST   /api/artifacts/{id}/versions         multipart zip: archive, name, changelog
+POST   /api/artifacts/{id}/versions         multipart: archive (zip, or a single .html page), name, changelog
 GET|PATCH|DELETE /api/artifacts/{id}/versions/{vid}
 PUT    /api/artifacts/{id}/versions/{vid}   re-upload (data survives)
+GET    /api/artifacts/{id}/versions/{vid}/source     published files: [{path, size, modifiedAt}]
+GET    /api/artifacts/{id}/versions/{vid}/db/tables  tables and views, columns, row counts
 POST   /api/artifacts/{id}/versions/{vid}/db/query   {sql, params}
 POST   /api/artifacts/{id}/versions/{vid}/db/batch   {statements: [{sql, params}]}
 GET    /api/artifacts/{id}/versions/{vid}/db/download
@@ -217,6 +256,9 @@ cairn whoami --json
 cairn artifact list --json
 cairn push ./dist --artifact my-app --create --json   # prints the URLs
 cairn push ./dist --artifact my-app --overwrite latest
+cairn push ./my-page            # same directory, same artifact (new one the first time)
+cairn comments list my-app      # open threads left in the viewer
+cairn comments add my-app "Fixed in v3." --reply <comment-id> --resolve
 cairn db query --artifact my-app --json "SELECT COUNT(*) FROM notes"
 cairn files put ./report.pdf --artifact my-app --path exports/report.pdf
 cairn files list --artifact my-app --json
@@ -224,6 +266,11 @@ cairn files get exports/report.pdf --artifact my-app --out ./report.pdf
 ```
 
 All commands accept `--json`; errors exit non-zero with a message on stderr.
+`cairn push` without `--artifact` publishes to the artifact the directory was
+last pushed to from this machine (remembered in the CLI config), or creates a
+private one named after the directory, like re-publishing the same file in
+Claude keeps the same artifact. Artifacts without a description take the
+`<title>` of their `index.html`.
 Associate an agent session with `cairn artifact create --resource
 claude-session=<id>` or `POST /api/artifacts/{id}/resources` — afterwards the
 session id works anywhere an artifact id or name does:
@@ -297,6 +344,7 @@ API keys and session tokens work on `/mcp` too, for scripts.
 | `read_source` | list or read a version's published files |
 | `db_query`, `db_batch` | SQL on a version's shared database |
 | `list_files`, `read_file`, `write_file`, `delete_file` | a version's file storage |
+| `list_comments`, `add_comment`, `resolve_comment` | feedback threads from the viewer: read them, reply (and resolve) after acting on them |
 
 `version` defaults to the latest one everywhere. Each tool replays the
 matching `/api` route in-process (`internal/server/mcp.go`), so limits and
@@ -340,7 +388,8 @@ curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" 
 | Hosting | claude.ai, Anthropic accounts | self-hosted, your domain, your disk |
 | Content | single-page, strict CSP | full multi-file SPA dirs, no CSP wall |
 | Shared data | capability-gated runtime | first-class SQLite (raw SQL, transactions, cross-version migration, downloadable file) + per-version file storage |
-| Versioning | product history | explicit versions + changelogs, stable URLs, re-upload |
+| Versioning | product history | explicit versions + changelogs, stable URLs, re-upload; the viewer follows the latest live |
+| Feedback | comments on artifacts | comment threads per artifact, read and answered by agents (MCP, CLI) |
 | Automation | Claude's Artifact tool | any agent via CLI/API keys — model-agnostic |
 | AI runtime | `window.claude` in page | none built in |
 | Security | sandboxed for untrusted viewers | trust-based, invited users only |

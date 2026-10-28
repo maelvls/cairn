@@ -40,7 +40,8 @@ const mcpInstructions = `Cairn hosts artifacts: single-page web apps (an index.h
 - publish creates an artifact (or a new version of one) from files given inline; the result's url is the page to open. Artifacts are private (sign-in required) unless public is true.
 - Pages can use the shared database and file storage through cairn.js: <script src="./cairn.js"></script> is served inside every version.
 - "artifact" arguments take an artifact id (or a resource value associated with it); "version" defaults to the latest version.
-- db_query runs one SQL statement; db_batch runs several in one transaction (use it for CREATE TABLE migrations).`
+- db_query runs one SQL statement; db_batch runs several in one transaction (use it for CREATE TABLE migrations).
+- People review artifacts in the viewer (viewer_url) and leave comments: list_comments shows the open threads; after acting on one, reply with add_comment (resolve: true) so they know what changed.`
 
 type rpcMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -62,6 +63,7 @@ type rpcResponse struct {
 }
 
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	r = withVia(r, "mcp")
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, s.maxUploadBytes()))
 	if err != nil {
 		writeJSON(w, http.StatusRequestEntityTooLarge, rpcResponse{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcError{-32600, "request too large"}})
@@ -260,6 +262,12 @@ func (s *Server) mcpURL(aid, vid string) string {
 	return u
 }
 
+// mcpViewerURL is the external URL of an artifact in the viewer, where
+// people see its versions and comment.
+func (s *Server) mcpViewerURL(aid string) string {
+	return strings.TrimRight(s.cfg.BaseURL, "/") + "/shared/" + aid
+}
+
 // mcpFile is a file passed inline to a tool: text, or base64 for binaries.
 type mcpFile struct {
 	Path     string `json:"path"`
@@ -429,13 +437,13 @@ var mcpTools = []mcpTool{
 			if args.Name != "" {
 				path += "?name=" + url.QueryEscape(args.Name)
 			}
-			var as []*store.Artifact
+			var as []*store.ArtifactSummary
 			if err := s.mcpJSON(r, "GET", path, nil, &as); err != nil {
 				return nil, err
 			}
 			out := make([]map[string]any, 0, len(as))
 			for _, a := range as {
-				out = append(out, map[string]any{"artifact": a, "url": s.mcpURL(a.ID, "")})
+				out = append(out, map[string]any{"artifact": a, "url": s.mcpURL(a.ID, ""), "viewer_url": s.mcpViewerURL(a.ID)})
 			}
 			return out, nil
 		},
@@ -461,7 +469,7 @@ var mcpTools = []mcpTool{
 			if err := s.mcpJSON(r, "GET", "/api/artifacts/"+a.ID+"/versions", nil, &vs); err != nil {
 				return nil, err
 			}
-			return map[string]any{"artifact": a, "versions": vs, "url": s.mcpURL(a.ID, "")}, nil
+			return map[string]any{"artifact": a, "versions": vs, "url": s.mcpURL(a.ID, ""), "viewer_url": s.mcpViewerURL(a.ID)}, nil
 		},
 	},
 	{
@@ -533,7 +541,7 @@ var mcpTools = []mcpTool{
 				}
 				return nil, err
 			}
-			return map[string]any{"artifact": a, "version": v, "url": s.mcpURL(a.ID, v.ID)}, nil
+			return map[string]any{"artifact": a, "version": v, "url": s.mcpURL(a.ID, v.ID), "viewer_url": s.mcpViewerURL(a.ID)}, nil
 		},
 	},
 	{
@@ -602,19 +610,7 @@ var mcpTools = []mcpTool{
 			}
 			root := s.layout.ContentDir(a.ID, v.ContentDir)
 			if args.Path == "" {
-				files := []fileInfo{}
-				err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-					if err != nil || d.IsDir() {
-						return err
-					}
-					info, err := d.Info()
-					if err != nil {
-						return err
-					}
-					rel, _ := filepath.Rel(root, p)
-					files = append(files, fileInfo{Path: filepath.ToSlash(rel), Size: info.Size(), ModifiedAt: fileModTime(info.ModTime())})
-					return nil
-				})
+				files, err := s.sourceFiles(a, v)
 				if err != nil {
 					return nil, err
 				}
@@ -804,4 +800,123 @@ var mcpTools = []mcpTool{
 			return map[string]any{"ok": true}, nil
 		},
 	},
+	{
+		name: "list_comments",
+		description: "List the comment threads people left on an artifact (feedback to act on), oldest first. " +
+			"Each thread is a root comment with its replies; versionId is the version the author was looking at.",
+		schema: object([]string{"artifact"}, map[string]any{
+			"artifact": artifactProp,
+			"status":   map[string]any{"type": "string", "enum": []string{"open", "resolved", "all"}, "description": "Defaults to open."},
+		}),
+		readOnly: true,
+		call: func(s *Server, r *http.Request, raw json.RawMessage) (any, error) {
+			args, err := decodeArgs[struct {
+				Artifact string `json:"artifact"`
+				Status   string `json:"status"`
+			}](raw)
+			if err != nil {
+				return nil, err
+			}
+			if args.Artifact == "" {
+				return nil, errors.New("artifact is required")
+			}
+			if args.Status == "" {
+				args.Status = "open"
+			}
+			var cs []*store.Comment
+			if err := s.mcpJSON(r, "GET", "/api/artifacts/"+url.PathEscape(args.Artifact)+"/comments?status="+url.QueryEscape(args.Status), nil, &cs); err != nil {
+				return nil, err
+			}
+			return commentThreads(cs), nil
+		},
+	},
+	{
+		name: "add_comment",
+		description: "Comment on an artifact, or reply to a thread (reply_to). Use it to tell people what changed after acting on their feedback; " +
+			"with resolve, the thread is resolved after the reply.",
+		schema: object([]string{"artifact", "body"}, map[string]any{
+			"artifact": artifactProp,
+			"body":     str("The comment (plain text)."),
+			"reply_to": str("Id of a comment of the thread to reply to. Omit to start a thread."),
+			"version":  str("Version the comment is about. Defaults to the latest version."),
+			"resolve":  map[string]any{"type": "boolean", "description": "Resolve the thread after posting (replies only)."},
+		}),
+		call: func(s *Server, r *http.Request, raw json.RawMessage) (any, error) {
+			args, err := decodeArgs[struct {
+				Artifact string `json:"artifact"`
+				Body     string `json:"body"`
+				ReplyTo  string `json:"reply_to"`
+				Version  string `json:"version"`
+				Resolve  bool   `json:"resolve"`
+			}](raw)
+			if err != nil {
+				return nil, err
+			}
+			a, v, err := s.mcpVersion(args.Artifact, args.Version)
+			if err != nil {
+				return nil, err
+			}
+			var c store.Comment
+			req := map[string]any{"body": args.Body, "parentId": args.ReplyTo, "versionId": v.ID}
+			if err := s.mcpJSON(r, "POST", "/api/artifacts/"+a.ID+"/comments", req, &c); err != nil {
+				return nil, err
+			}
+			if args.Resolve && c.ParentID != "" {
+				if err := s.mcpJSON(r, "PATCH", "/api/artifacts/"+a.ID+"/comments/"+c.ID, map[string]any{"resolved": true}, nil); err != nil {
+					return nil, err
+				}
+			}
+			return c, nil
+		},
+	},
+	{
+		name:        "resolve_comment",
+		description: "Resolve a comment thread (or reopen it with reopen: true).",
+		schema: object([]string{"artifact", "comment"}, map[string]any{
+			"artifact": artifactProp,
+			"comment":  str("Id of a comment of the thread."),
+			"reopen":   map[string]any{"type": "boolean", "description": "Reopen instead of resolving."},
+		}),
+		call: func(s *Server, r *http.Request, raw json.RawMessage) (any, error) {
+			args, err := decodeArgs[struct {
+				Artifact string `json:"artifact"`
+				Comment  string `json:"comment"`
+				Reopen   bool   `json:"reopen"`
+			}](raw)
+			if err != nil {
+				return nil, err
+			}
+			if args.Artifact == "" || args.Comment == "" {
+				return nil, errors.New("artifact and comment are required")
+			}
+			var c store.Comment
+			path := "/api/artifacts/" + url.PathEscape(args.Artifact) + "/comments/" + url.PathEscape(args.Comment)
+			if err := s.mcpJSON(r, "PATCH", path, map[string]any{"resolved": !args.Reopen}, &c); err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+	},
+}
+
+// commentThread is a root comment with its replies, as MCP clients get them.
+type commentThread struct {
+	*store.Comment
+	Replies []*store.Comment `json:"replies"`
+}
+
+// commentThreads groups a flat, oldest-first comment list into threads.
+func commentThreads(cs []*store.Comment) []*commentThread {
+	threads := []*commentThread{}
+	byID := map[string]*commentThread{}
+	for _, c := range cs {
+		if c.ParentID == "" {
+			t := &commentThread{Comment: c, Replies: []*store.Comment{}}
+			byID[c.ID] = t
+			threads = append(threads, t)
+		} else if t := byID[c.ParentID]; t != nil {
+			t.Replies = append(t.Replies, c)
+		}
+	}
+	return threads
 }

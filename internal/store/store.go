@@ -85,7 +85,9 @@ func (s *Store) migrate() error {
 	return nil
 }
 
-func now() string { return time.Now().UTC().Format(time.RFC3339) }
+// now is RFC 3339 with milliseconds, fixed width so timestamps sort as
+// strings: viewers tell two re-uploads in the same second apart.
+func now() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z07:00") }
 
 // ErrNotFound is returned when a row does not exist.
 var ErrNotFound = sql.ErrNoRows

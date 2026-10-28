@@ -1,0 +1,215 @@
+/* Shared chrome of Cairn's own pages (gallery, viewer, admin): the landing
+   page design system — dark, lime accent, grotesk + mono. Served at
+   /_ui/ui.css. Artifacts never load it. */
+:root{
+  --bg:#0B0E13;
+  --bg-raise:#10141C;
+  --bg-panel:#0E1219;
+  --bg-hover:#151A24;
+  --line:rgba(148,163,184,.13);
+  --line-soft:rgba(148,163,184,.07);
+  --line-strong:rgba(148,163,184,.24);
+  --text:#E4E9F2;
+  --muted:#8C96A8;
+  --faint:#5A6476;
+  --accent:#C6F135;
+  --accent-ink:#0B0E13;
+  --accent-dim:rgba(198,241,53,.55);
+  --accent-tint:rgba(198,241,53,.08);
+  --danger:#E08A7C;
+  --danger-dim:rgba(224,138,124,.55);
+  --danger-tint:rgba(224,138,124,.08);
+  --warn:#E8C26A;
+  --radius:10px;
+  --shadow:0 .75rem 2.5rem rgb(0 0 0 / .55);
+  /* generic fallbacks matter: this page is served by a self-hosted binary
+     that may run with no internet access to Google Fonts */
+  --sans:"Familjen Grotesk",-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  --mono:"Fragment Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{overflow-x:clip}
+body{
+  background:var(--bg); color:var(--text); font-family:var(--sans);
+  font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent); color:var(--accent-ink)}
+a{color:inherit}
+button{font:inherit; color:inherit}
+[hidden]{display:none !important}
+.mono{font-family:var(--mono); font-size:12.5px}
+.faint{color:var(--faint)}
+.muted{color:var(--muted)}
+.sr-only{position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap}
+:focus-visible{outline:2px solid var(--accent-dim); outline-offset:2px}
+
+/* ------------------------------------------------------------ top bar */
+.topbar{
+  display:flex; align-items:center; gap:.5rem .9rem; min-height:52px;
+  padding:.45rem clamp(12px,3vw,24px);
+  background:rgba(11,14,19,.82);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+  position:sticky; top:0; z-index:20;
+}
+.brand{display:flex; align-items:center; gap:.55rem; text-decoration:none; flex:none}
+.brand svg{width:22px; height:22px; display:block}
+.brand b{font-size:16.5px; font-weight:600; letter-spacing:.01em}
+.nav{display:flex; gap:2px}
+.nav a{
+  font-family:var(--mono); font-size:12.5px; text-decoration:none;
+  color:var(--muted); padding:6px 10px; border-radius:6px;
+  transition:color .15s ease, background-color .15s ease;
+}
+.nav a:hover{color:var(--text)}
+.nav a[aria-current=page]{color:var(--text); background:var(--accent-tint); box-shadow:inset 0 -1px 0 var(--accent)}
+.spacer{flex:1}
+.who{font-family:var(--mono); font-size:12px; color:var(--faint); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:22ch}
+
+/* ------------------------------------------------------------ buttons */
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
+  font-family:var(--mono); font-size:12px; line-height:1; cursor:pointer;
+  padding:7px 11px; border-radius:7px; border:1px solid var(--line);
+  background:none; color:var(--muted); text-decoration:none; white-space:nowrap;
+  transition:color .15s ease, border-color .15s ease, background-color .15s ease;
+}
+.btn:hover{border-color:var(--accent-dim); color:var(--accent)}
+.btn svg{width:15px; height:15px; flex:none}
+.btn.primary{background:var(--accent); color:var(--accent-ink); border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08); color:var(--accent-ink)}
+.btn.danger:hover{border-color:var(--danger-dim); color:var(--danger)}
+.btn.ghost{border-color:transparent}
+.btn.ghost:hover{background:var(--bg-hover); border-color:transparent; color:var(--text)}
+.btn.icon{padding:7px}
+.btn.on{color:var(--accent); border-color:var(--accent-dim); background:var(--accent-tint)}
+.btn.small{padding:4px 8px; font-size:11px}
+.btn[disabled]{opacity:.45; pointer-events:none}
+.badge{
+  font-family:var(--mono); font-size:10.5px; line-height:1;
+  min-width:17px; padding:3px 5px; border-radius:9px; text-align:center;
+  background:var(--accent); color:var(--accent-ink);
+}
+
+/* -------------------------------------------------------------- pills */
+.pill{
+  display:inline-flex; align-items:center; gap:.3rem;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; line-height:1.4;
+  padding:1px 8px; border-radius:1rem; white-space:nowrap;
+  color:var(--faint); border:1px solid var(--line);
+}
+.pill.public{color:var(--accent); border-color:var(--accent-dim)}
+.pill.warn{color:var(--warn); border-color:rgba(232,194,106,.45)}
+.pill.agent{color:#9DB7FF; border-color:rgba(157,183,255,.4)}
+button.pill{background:none; cursor:pointer}
+button.pill:hover{border-color:var(--line-strong); color:var(--text)}
+
+/* -------------------------------------------------------------- forms */
+.input, textarea.input, select.input{
+  width:100%; padding:8px 11px; font-family:var(--mono); font-size:12.5px;
+  background:var(--bg); color:var(--text);
+  border:1px solid var(--line); border-radius:7px; outline:none;
+  transition:border-color .15s ease;
+}
+.input:focus{border-color:var(--accent-dim)}
+.input::placeholder{color:var(--faint)}
+textarea.input{resize:vertical; min-height:4.5rem; line-height:1.5; font-family:var(--sans); font-size:14px}
+label.check{display:flex; align-items:center; gap:.45rem; font-family:var(--mono); font-size:12px; color:var(--muted); cursor:pointer}
+label.check input{accent-color:var(--accent)}
+.field{display:grid; gap:.3rem}
+.field > span{font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--faint)}
+.search{position:relative; flex:0 1 22rem; min-width:9rem}
+.search svg{position:absolute; left:10px; top:50%; translate:0 -50%; width:14px; height:14px; color:var(--faint); pointer-events:none}
+.search .input{padding-left:31px; padding-right:28px}
+.search kbd{position:absolute; right:8px; top:50%; translate:0 -50%}
+kbd{
+  font-family:var(--mono); font-size:10.5px; color:var(--faint);
+  border:1px solid var(--line); border-radius:4px; padding:0 5px; line-height:1.5;
+}
+
+/* ------------------------------------------------------- popover menu */
+.menu{
+  position:fixed; z-index:50; min-width:12rem; padding:4px;
+  background:var(--bg-raise); border:1px solid var(--line-strong); border-radius:9px;
+  box-shadow:var(--shadow);
+}
+.menu button, .menu a{
+  display:flex; align-items:center; gap:.55rem; width:100%;
+  padding:7px 10px; border:0; border-radius:6px; background:none;
+  font-family:var(--mono); font-size:12px; color:var(--muted);
+  text-align:left; text-decoration:none; cursor:pointer;
+}
+.menu button:hover, .menu a:hover{background:var(--bg-hover); color:var(--text)}
+.menu .danger:hover{color:var(--danger); background:var(--danger-tint)}
+.menu hr{border:0; border-top:1px solid var(--line); margin:4px 2px}
+.menu svg{width:14px; height:14px}
+
+/* -------------------------------------------------------------- toast */
+.toasts{position:fixed; bottom:1.1rem; left:50%; translate:-50% 0; z-index:60; display:grid; gap:.5rem; justify-items:center; width:min(36rem,calc(100vw - 32px))}
+.toast{
+  display:flex; align-items:center; gap:.8rem;
+  background:var(--bg-raise); color:var(--text); border:1px solid var(--accent-dim);
+  font-family:var(--mono); font-size:12.5px; padding:.6rem .7rem .6rem 1rem;
+  border-radius:9px; box-shadow:var(--shadow); max-width:100%; overflow-wrap:anywhere;
+  animation:toast-in .18s ease-out;
+}
+.toast.error{border-color:var(--danger-dim)}
+.toast .btn{flex:none}
+@keyframes toast-in{from{opacity:0; transform:translateY(6px)}}
+
+/* ------------------------------------------------------------- dialog */
+dialog{
+  margin:auto; width:min(30rem,calc(100vw - 32px)); padding:0;
+  background:var(--bg-raise); color:var(--text);
+  border:1px solid var(--line-strong); border-radius:12px; box-shadow:var(--shadow);
+}
+dialog::backdrop{background:rgb(5 7 10 / .7); backdrop-filter:blur(2px)}
+dialog form{display:grid; gap:1rem; padding:1.3rem}
+dialog h2{font-size:18px; font-weight:600}
+dialog p{color:var(--muted); font-size:13.5px}
+dialog .row{display:flex; gap:.5rem; justify-content:flex-end; flex-wrap:wrap}
+
+/* ------------------------------------------------------- switch toggle */
+.switch{position:relative; display:inline-flex; align-items:center; gap:.55rem; cursor:pointer; font-family:var(--mono); font-size:12px; color:var(--muted)}
+.switch input{appearance:none; width:30px; height:17px; border-radius:9px; background:var(--line-strong); position:relative; cursor:pointer; transition:background-color .15s ease; flex:none}
+.switch input::after{content:""; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:var(--text); transition:translate .15s ease}
+.switch input:checked{background:var(--accent)}
+.switch input:checked::after{translate:13px 0; background:var(--accent-ink)}
+
+/* ------------------------------------------------------------- avatar */
+.avatar{
+  display:inline-grid; place-items:center; flex:none;
+  width:24px; height:24px; border-radius:50%;
+  font-size:11px; font-weight:600; color:var(--accent-ink);
+}
+
+/* -------------------------------------------------------------- empty */
+.empty{
+  border:1px dashed var(--line-strong); border-radius:var(--radius);
+  padding:2.2rem 1.4rem; text-align:center; color:var(--muted);
+}
+.empty h3{color:var(--text); font-size:17px; font-weight:600; margin-bottom:.35rem}
+.empty code, code.cmd{
+  display:inline-block; margin-top:.8rem; padding:.45rem .8rem; border-radius:7px;
+  background:var(--bg); border:1px solid var(--line);
+  font-family:var(--mono); font-size:12.5px; color:var(--text); overflow-wrap:anywhere;
+}
+.spinner{width:16px; height:16px; border:2px solid var(--line-strong); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite}
+@keyframes spin{to{rotate:360deg}}
+
+/* drop overlay, shared by gallery and viewer */
+.dropzone{
+  position:fixed; inset:0; z-index:40; display:grid; place-items:center;
+  background:rgb(11 14 19 / .86); backdrop-filter:blur(3px);
+  pointer-events:none;
+}
+.dropzone div{
+  border:2px dashed var(--accent-dim); border-radius:16px; padding:2.5rem 3rem;
+  text-align:center; color:var(--text); font-size:17px; max-width:min(32rem,calc(100vw - 32px));
+}
+.dropzone small{display:block; margin-top:.4rem; font-family:var(--mono); font-size:12px; color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important; transition:none !important}
+}

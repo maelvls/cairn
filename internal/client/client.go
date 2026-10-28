@@ -192,6 +192,27 @@ func (c *Client) ResolveArtifact(idOrName string) (*store.Artifact, error) {
 	}
 }
 
+// Comments
+
+// ListComments returns an artifact's comments, oldest first; status is
+// "open", "resolved" or "" for all.
+func (c *Client) ListComments(artifactID, status string) ([]*store.Comment, error) {
+	var out []*store.Comment
+	return out, c.doJSON("GET", "/api/artifacts/"+artifactID+"/comments?status="+url.QueryEscape(status), nil, &out)
+}
+
+func (c *Client) AddComment(artifactID, body, parentID, versionID string) (*store.Comment, error) {
+	var out store.Comment
+	return &out, c.doJSON("POST", "/api/artifacts/"+artifactID+"/comments",
+		map[string]string{"body": body, "parentId": parentID, "versionId": versionID}, &out)
+}
+
+func (c *Client) ResolveComment(artifactID, commentID string, resolved bool) (*store.Comment, error) {
+	var out store.Comment
+	return &out, c.doJSON("PATCH", "/api/artifacts/"+artifactID+"/comments/"+url.PathEscape(commentID),
+		map[string]bool{"resolved": resolved}, &out)
+}
+
 // Versions
 
 func (c *Client) ListVersions(artifactID string) ([]*store.Version, error) {

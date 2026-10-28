@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Artifacts · Cairn</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B0E13'/%3E%3Crect x='11' y='7' width='10' height='4' rx='2' fill='%23C6F135'/%3E%3Crect x='8' y='14' width='16' height='4' rx='2' fill='%23C6F135' opacity='.7'/%3E%3Crect x='5' y='21' width='22' height='4' rx='2' fill='%23C6F135' opacity='.45'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/_ui/ui.css">
+<style>
+  main{max-width:84rem; margin:0 auto; padding:1.8rem clamp(16px,3vw,28px) 5rem}
+  .head{display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.1rem}
+  .head h1{font-size:26px; font-weight:600; letter-spacing:-.015em; line-height:1.1}
+  .head .count{font-family:var(--mono); font-size:12px; color:var(--faint); margin-left:.5rem; letter-spacing:0}
+  .toolbar{display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:1.4rem}
+  .filters{display:flex; gap:2px; padding:2px; border:1px solid var(--line); border-radius:8px; background:var(--bg-panel)}
+  .filters button{
+    font-family:var(--mono); font-size:12px; color:var(--muted);
+    background:none; border:0; padding:5px 10px; border-radius:6px; cursor:pointer;
+  }
+  .filters button:hover{color:var(--text)}
+  .filters button[aria-pressed=true]{background:var(--bg-hover); color:var(--text); box-shadow:inset 0 -1px 0 var(--accent)}
+  .toolbar select.input{width:auto; padding:6px 9px}
+  .views{display:flex; gap:2px}
+
+  h2.group{
+    font-family:var(--mono); font-size:11.5px; font-weight:400; letter-spacing:.08em;
+    color:var(--faint); margin:1.6rem 0 .7rem; display:flex; align-items:center; gap:.5rem;
+  }
+  h2.group:first-child{margin-top:0}
+  h2.group svg{width:13px; height:13px}
+
+  /* --------------------------------------------------------- grid view */
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,265px),1fr)); gap:16px}
+  .card{
+    position:relative; display:flex; flex-direction:column; min-width:0;
+    background:var(--bg-panel); border:1px solid var(--line); border-radius:var(--radius);
+    overflow:hidden; text-decoration:none;
+    transition:border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+  }
+  .card:hover{border-color:var(--line-strong); transform:translateY(-1px); box-shadow:0 .6rem 1.8rem rgb(0 0 0 / .35)}
+  .card:focus-within{border-color:var(--accent-dim)}
+  .thumb{
+    position:relative; aspect-ratio:16/10; overflow:hidden;
+    background:var(--bg-raise); border-bottom:1px solid var(--line-soft);
+  }
+  .thumb iframe{
+    position:absolute; top:0; left:0; width:1280px; height:800px; border:0;
+    transform-origin:0 0; transform:scale(var(--thumb-scale,.21));
+    pointer-events:none; background:#fff; opacity:0; transition:opacity .3s ease;
+  }
+  .thumb iframe.loaded{opacity:1}
+  .thumb .glyph{
+    position:absolute; inset:0; display:grid; place-items:center;
+    font-size:42px; font-weight:600; letter-spacing:-.03em; color:rgb(255 255 255 / .82);
+  }
+  .thumb .glyph small{display:block; font-family:var(--mono); font-size:11px; font-weight:400; letter-spacing:.06em; color:rgb(255 255 255 / .55); text-align:center}
+  .card a.cover{position:absolute; inset:0; z-index:1}
+  .card a.cover:focus-visible{outline-offset:-3px}
+  .body{padding:.75rem .85rem .8rem; display:grid; gap:.3rem; min-width:0}
+  .title{font-weight:600; font-size:15px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .desc{color:var(--muted); font-size:13px; line-height:1.4; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; min-height:2.8em}
+  .meta{display:flex; align-items:center; gap:.45rem; flex-wrap:wrap; margin-top:.2rem; font-family:var(--mono); font-size:11px; color:var(--faint)}
+  .meta .avatar{width:18px; height:18px; font-size:9.5px}
+  .meta .comments{display:inline-flex; align-items:center; gap:.2rem; color:var(--accent)}
+  .meta .comments svg{width:13px; height:13px}
+  .card .actions{position:absolute; top:8px; right:8px; z-index:2; display:flex; gap:4px; opacity:0; transition:opacity .15s ease}
+  .card:hover .actions, .card:focus-within .actions, .card .actions.keep{opacity:1}
+  .card .actions .btn{background:rgb(11 14 19 / .82); backdrop-filter:blur(6px); border-color:var(--line-strong); color:var(--text); padding:6px}
+  .card .actions .btn.on{color:var(--accent)}
+  @media (hover:none){ .card .actions{opacity:1} }
+
+  /* --------------------------------------------------------- list view */
+  .rows{border:1px solid var(--line); border-radius:var(--radius); background:var(--bg-panel); overflow:hidden}
+  .row{position:relative; display:grid; grid-template-columns:28px minmax(0,1fr) auto auto; align-items:center; gap:.9rem; padding:.6rem .9rem; border-bottom:1px solid var(--line-soft)}
+  .row:last-child{border-bottom:0}
+  .row:hover{background:var(--bg-raise)}
+  .row .dot{width:28px; height:28px; border-radius:7px; display:grid; place-items:center; font-weight:600; font-size:13px; color:rgb(255 255 255 / .85)}
+  .row .title{font-size:14.5px}
+  .row .desc{min-height:0; -webkit-line-clamp:1; font-size:12.5px}
+  .row .actions{position:relative; z-index:2; display:flex; gap:4px}
+  @media (max-width:640px){
+    .row{grid-template-columns:28px minmax(0,1fr) auto}
+    .row .pills{display:none}
+  }
+
+  .welcome{max-width:44rem; margin:3rem auto; text-align:left}
+  .welcome h3{font-size:20px}
+  .welcome ol{margin:1rem 0 0 1.2rem; display:grid; gap:.9rem; color:var(--muted)}
+  .welcome li code{display:block; margin-top:.4rem}
+  @media (max-width:560px){ .who, .topbar kbd{display:none} .search{flex:1} }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Cairn home">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="11" y="7"  width="10" height="4" rx="2" fill="#C6F135"/>
+        <rect x="8"  y="14" width="16" height="4" rx="2" fill="#C6F135" opacity=".7"/>
+        <rect x="5"  y="21" width="22" height="4" rx="2" fill="#C6F135" opacity=".45"/>
+      </svg>
+      <b>cairn</b>
+    </a>
+    <nav class="nav">
+      <a href="/" aria-current="page">artifacts</a>
+      {{if .User.IsAdmin}}<a href="/admin">admin</a>{{end}}
+    </nav>
+    <span class="spacer"></span>
+    <label class="search">
+      <span class="sr-only">Search artifacts</span>
+      <input class="input" id="q" type="search" placeholder="Search artifacts" autocomplete="off">
+      <kbd>/</kbd>
+    </label>
+    <span class="who" title="{{.User.Email}}">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</span>
+    <a class="btn ghost small" href="/logout">sign out</a>
+  </header>
+
+  <main>
+    <div class="head">
+      <h1>Artifacts<span class="count" id="count"></span></h1>
+      <span class="spacer"></span>
+      <button class="btn primary" id="new"></button>
+    </div>
+    <div class="toolbar">
+      <div class="filters" role="group" aria-label="Filter" id="filters">
+        <button data-f="all" aria-pressed="true">all</button>
+        <button data-f="pinned" aria-pressed="false">pinned</button>
+        <button data-f="mine" aria-pressed="false">mine</button>
+        <button data-f="public" aria-pressed="false">public</button>
+        <button data-f="private" aria-pressed="false">private</button>
+        <button data-f="comments" aria-pressed="false">open comments</button>
+      </div>
+      <span class="spacer"></span>
+      <select class="input" id="sort" aria-label="Sort">
+        <option value="updated">recently updated</option>
+        <option value="created">recently created</option>
+        <option value="name">name</option>
+      </select>
+      <div class="views" role="group" aria-label="Layout">
+        <button class="btn icon" data-view="grid" title="Grid" aria-label="Grid"></button>
+        <button class="btn icon" data-view="list" title="List" aria-label="List"></button>
+      </div>
+    </div>
+    <div id="out" aria-live="polite"><div class="spinner" style="margin:3rem auto"></div></div>
+  </main>
+
+<script src="/_ui/ui.js"></script>
+<script>
+(() => {
+  const {h, icon, api, put, del, patch, post, toast, fail, menu, ask, ago, fullDate, hue, avatar, copy, users, userLabel, publish, onDrop} = ui;
+  const BOOT = {{.Boot}};
+  const me = BOOT.user;
+
+  const prefs = (() => {
+    try { return JSON.parse(localStorage.getItem('cairn.gallery') || '{}'); } catch { return {}; }
+  })();
+  const state = {
+    all: [], dir: new Map(),
+    q: '', filter: prefs.filter || 'all', sort: prefs.sort || 'updated', view: prefs.view || 'grid',
+  };
+  function savePrefs() {
+    try { localStorage.setItem('cairn.gallery', JSON.stringify({filter: state.filter, sort: state.sort, view: state.view})); } catch {}
+  }
+
+  const out = document.getElementById('out');
+  const q = document.getElementById('q');
+  document.getElementById('new').append(icon('plus'), 'New artifact');
+  q.before(icon('search'));
+  document.querySelector('[data-view=grid]').append(icon('grid'));
+  document.querySelector('[data-view=list]').append(icon('list'));
+  document.getElementById('sort').value = state.sort;
+
+  // -------------------------------------------------------------- data
+  async function load() {
+    try {
+      const [list, dir] = await Promise.all([api('/api/artifacts'), users()]);
+      state.all = list;
+      state.dir = dir;
+      render();
+    } catch (e) {
+      out.replaceChildren(h('div.empty', h('h3', 'Could not load artifacts'), h('p', e.message)));
+    }
+  }
+
+  const words = s => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  function matches(a) {
+    if (state.q) {
+      const hay = words([a.name, a.description, a.id, ...(a.resources || []).map(r => r.value), userLabel(state.dir.get(a.createdBy))].join(' '));
+      if (!words(state.q).split(/\s+/).every(w => hay.includes(w))) return false;
+    }
+    switch (state.filter) {
+      case 'pinned': return a.pinned;
+      case 'mine': return a.createdBy === me.id;
+      case 'public': return a.public;
+      case 'private': return !a.public;
+      case 'comments': return a.openComments > 0;
+    }
+    return true;
+  }
+  function sorted(list) {
+    const by = {
+      updated: (x, y) => (y.updatedAt || '').localeCompare(x.updatedAt || ''),
+      created: (x, y) => (y.createdAt || '').localeCompare(x.createdAt || ''),
+      name: (x, y) => (x.description || x.name).localeCompare(y.description || y.name, undefined, {sensitivity: 'base'}),
+    }[state.sort];
+    return [...list].sort(by);
+  }
+
+  // ------------------------------------------------------------ render
+  function render() {
+    for (const b of document.querySelectorAll('#filters button')) b.setAttribute('aria-pressed', b.dataset.f === state.filter);
+    for (const b of document.querySelectorAll('[data-view]')) b.classList.toggle('on', b.dataset.view === state.view);
+    document.getElementById('count').textContent = state.all.length ? String(state.all.length) : '';
+
+    if (!state.all.length) { out.replaceChildren(welcome()); return; }
+    const list = sorted(state.all.filter(matches));
+    if (!list.length) {
+      out.replaceChildren(h('div.empty', h('h3', 'Nothing matches'),
+        h('p', state.q ? `No artifact matches “${state.q}”.` : 'No artifact in this view yet.')));
+      return;
+    }
+    const groups = [];
+    if (state.filter === 'all' && !state.q && list.some(a => a.pinned)) {
+      groups.push(['pinned', 'pin', list.filter(a => a.pinned)]);
+      groups.push(['everything else', null, list.filter(a => !a.pinned)]);
+    } else {
+      groups.push([null, null, list]);
+    }
+    const frag = document.createDocumentFragment();
+    for (const [label, ic, items] of groups) {
+      if (!items.length) continue;
+      if (label) frag.append(h('h2.group', ic ? icon(ic) : null, label.toUpperCase()));
+      frag.append(state.view === 'grid'
+        ? h('div.grid', items.map(card))
+        : h('div.rows', items.map(row)));
+    }
+    out.replaceChildren(frag);
+    observeThumbs();
+  }
+
+  const viewerURL = a => '/shared/' + a.id;
+  const title = a => a.description && a.description.length <= 90 ? a.description : a.name;
+  const subtitle = a => a.description && a.description.length <= 90 ? a.name : (a.description || '');
+
+  function glyph(a) {
+    const t = title(a);
+    const initials = t.replace(/[^\p{L}\p{N} ]/gu, ' ').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+    return h('div.glyph', {style: {background: `linear-gradient(135deg, hsl(${hue(a.id)} 38% 30%), hsl(${(hue(a.id) + 40) % 360} 42% 18%))`}},
+      h('div', initials || '◇', a.latestVersion ? null : h('small', 'NO VERSION YET')));
+  }
+
+  function metaLine(a) {
+    const author = state.dir.get(a.createdBy);
+    return h('div.meta',
+      h('span.pill' + (a.public ? '.public' : ''), a.public ? 'public' : 'private'),
+      a.latestVersion ? h('span', {title: a.versionCount + ' version' + (a.versionCount > 1 ? 's' : '')}, 'v' + a.latestVersion.seq) : null,
+      a.openComments ? h('span.comments', {title: a.openComments + ' open thread' + (a.openComments > 1 ? 's' : '')}, icon('comment'), a.openComments) : null,
+      h('span', {title: 'updated ' + fullDate(a.updatedAt)}, ago(a.updatedAt)),
+      author ? avatar(userLabel(author), 'created by ' + userLabel(author)) : null);
+  }
+
+  function pinButton(a) {
+    const b = h('button.btn.icon' + (a.pinned ? '.on' : ''), {
+      title: a.pinned ? 'Unpin' : 'Pin', 'aria-label': a.pinned ? 'Unpin' : 'Pin', 'aria-pressed': String(a.pinned),
+      onclick: e => { e.preventDefault(); togglePin(a); },
+    }, icon('pin', a.pinned ? {fill: 'currentColor'} : null));
+    return b;
+  }
+  function moreButton(a) {
+    return h('button.btn.icon', {
+      title: 'More', 'aria-label': 'More actions', 'aria-haspopup': 'menu',
+      onclick: e => { e.preventDefault(); menu(e.currentTarget, actions(a)); },
+    }, icon('more'));
+  }
+
+  function card(a) {
+    const thumb = h('div.thumb', glyph(a));
+    if (a.latestVersion) thumb.dataset.src = '/artifacts/' + a.id + '/' + a.latestVersion.id + '/';
+    return h('article.card',
+      h('a.cover', {href: viewerURL(a), 'aria-label': title(a)}),
+      thumb,
+      h('div.body',
+        h('div.title', {title: title(a)}, title(a)),
+        h('div.desc', subtitle(a)),
+        metaLine(a)),
+      h('div.actions' + (a.pinned ? '.keep' : ''), pinButton(a), moreButton(a)));
+  }
+
+  function row(a) {
+    const t = title(a);
+    return h('div.row',
+      h('a.cover', {href: viewerURL(a), 'aria-label': t, style: {position: 'absolute', inset: 0}}),
+      h('span.dot', {style: {background: `hsl(${hue(a.id)} 38% 32%)`}}, (t.match(/[\p{L}\p{N}]/u) || ['◇'])[0].toUpperCase()),
+      h('div', {style: {minWidth: 0}}, h('div.title', t), h('div.desc', subtitle(a))),
+      h('div.pills', metaLine(a)),
+      h('div.actions', pinButton(a), moreButton(a)));
+  }
+
+  function actions(a) {
+    const full = a.latestVersion ? '/artifacts/' + a.id + '/' + a.latestVersion.id + '/' : null;
+    return [
+      {label: 'Open in viewer', icon: 'panel', href: viewerURL(a)},
+      full && {label: 'Open full screen', icon: 'external', href: full, target: '_blank'},
+      {label: 'Copy link', icon: 'link', fn: () => copy(location.origin + viewerURL(a))},
+      a.openComments ? {label: 'Read comments', icon: 'comment', href: viewerURL(a) + '#comments'} : null,
+      '-',
+      {label: a.pinned ? 'Unpin' : 'Pin', icon: 'pin', fn: () => togglePin(a)},
+      {label: a.public ? 'Make private' : 'Make public', icon: a.public ? 'lock' : 'globe', fn: () => toggleVisibility(a)},
+      {label: 'Rename…', icon: 'edit', fn: () => rename(a)},
+      '-',
+      {label: 'Delete…', icon: 'trash', danger: true, fn: () => remove(a)},
+    ];
+  }
+
+  // ----------------------------------------------------------- actions
+  async function togglePin(a) {
+    try {
+      if (a.pinned) await del('/api/artifacts/' + a.id + '/pin'); else await put('/api/artifacts/' + a.id + '/pin');
+      a.pinned = !a.pinned;
+      render();
+    } catch (e) { fail(e); }
+  }
+  async function toggleVisibility(a) {
+    try {
+      Object.assign(a, await patch('/api/artifacts/' + a.id, {public: !a.public}));
+      toast(a.public ? 'Now public: anyone with the link can view it' : 'Now private: sign-in required');
+      render();
+    } catch (e) { fail(e); }
+  }
+  async function rename(a) {
+    const v = await ask({title: 'Rename artifact', ok: 'Save', fields: [
+      {name: 'name', label: 'name (used by the CLI)', value: a.name, required: true},
+      {name: 'description', label: 'title shown in the gallery', value: a.description},
+    ]});
+    if (!v) return;
+    try {
+      Object.assign(a, await patch('/api/artifacts/' + a.id, {name: v.name.trim(), description: v.description.trim()}));
+      render();
+    } catch (e) { fail(e); }
+  }
+  async function remove(a) {
+    const ok = await ask({title: 'Delete “' + title(a) + '”?', danger: true, ok: 'Delete',
+      text: `All ${a.versionCount} version(s), their shared databases, stored files and comments go with it. This cannot be undone.`});
+    if (!ok) return;
+    try {
+      await del('/api/artifacts/' + a.id);
+      state.all = state.all.filter(x => x.id !== a.id);
+      toast('Artifact deleted');
+      render();
+    } catch (e) { fail(e); }
+  }
+
+  // ------------------------------------------------------ new artifact
+  const slug = s => words(s).replace(/\.(html?|zip)$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'artifact';
+  async function create(file) {
+    const v = await ask({
+      title: 'New artifact',
+      text: file ? `Publish ${file.name} as version #1.` : 'Choose an .html page or a .zip of a folder with an index.html.',
+      ok: 'Publish',
+      fields: [
+        ...(file ? [] : [{name: 'file', label: 'page or archive', type: 'file'}]),
+        {name: 'name', label: 'name', value: file ? slug(file.name) : '', placeholder: 'my-artifact', required: true},
+        {name: 'description', label: 'title (optional: taken from <title> otherwise)', value: ''},
+        {name: 'public', label: 'public: anyone with the link can view it', type: 'checkbox', value: false},
+      ],
+    });
+    if (!v) return;
+    file ||= v.file && lastPicked;
+    if (!file) { fail('Pick a file to publish'); return; }
+    const pending = toast('Publishing…', {sticky: true});
+    let a;
+    try {
+      a = await post('/api/artifacts', {name: v.name.trim(), description: v.description.trim(), public: v.public});
+      await publish(file, {artifact: a.id, name: 'v1'});
+      location.href = viewerURL(a);
+    } catch (e) {
+      pending.remove();
+      if (a) api('/api/artifacts/' + a.id, {method: 'DELETE'}).catch(() => {});
+      fail(e);
+    }
+  }
+  // <input type=file> values are a fake path: remember the picked File.
+  let lastPicked = null;
+  document.addEventListener('change', e => {
+    if (e.target.matches('dialog input[type=file]')) {
+      lastPicked = e.target.files[0] || null;
+      const name = e.target.form.elements.name;
+      if (lastPicked && !name.value) name.value = slug(lastPicked.name);
+    }
+  });
+  document.getElementById('new').addEventListener('click', () => { lastPicked = null; create(null); });
+  onDrop(() => 'Drop to publish a new artifact', () => '.html page or .zip with an index.html', create);
+
+  // ------------------------------------------------------------ welcome
+  function welcome() {
+    const mcp = BOOT.mcpUrl.startsWith('/') ? location.origin + BOOT.mcpUrl : BOOT.mcpUrl;
+    return h('div.welcome.empty',
+      h('h3', 'No artifacts yet'),
+      h('p', 'Artifacts are web pages with their own shared database and file storage. Publish one any of these ways:'),
+      h('ol',
+        h('li', 'Drop an .html page or a .zip anywhere on this page, or use “New artifact”.'),
+        h('li', 'From a terminal or an agent, with the cairn CLI:', h('code', `cairn login --host ${location.origin}\ncairn push ./my-page`)),
+        h('li', 'From Claude, ChatGPT or Grok: add this MCP connector and ask it to publish.', h('code', mcp))));
+  }
+
+  // --------------------------------------------------------- thumbnails
+  // Live previews: the latest version, scaled down, loaded when scrolled
+  // into view. Sandboxed so previews can't open dialogs or navigate.
+  let thumbScale = 0.21;
+  const sizer = new ResizeObserver(entries => {
+    const w = entries[0].contentRect.width;
+    if (w) { thumbScale = w / 1280; document.documentElement.style.setProperty('--thumb-scale', thumbScale); }
+  });
+  const lazy = new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      const t = e.target;
+      lazy.unobserve(t);
+      const f = h('iframe', {src: t.dataset.src, tabindex: '-1', 'aria-hidden': 'true', loading: 'lazy',
+        sandbox: 'allow-scripts allow-same-origin', title: ''});
+      f.addEventListener('load', () => f.classList.add('loaded'));
+      t.append(f);
+    }
+  }, {rootMargin: '300px'});
+  function observeThumbs() {
+    const thumbs = out.querySelectorAll('.thumb[data-src]');
+    if (thumbs[0]) { sizer.disconnect(); sizer.observe(thumbs[0]); }
+    for (const t of thumbs) if (!t.querySelector('iframe')) lazy.observe(t);
+  }
+
+  // ------------------------------------------------------------- wiring
+  q.addEventListener('input', () => { state.q = q.value.trim(); render(); });
+  document.getElementById('filters').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    state.filter = b.dataset.f; savePrefs(); render();
+  });
+  document.getElementById('sort').addEventListener('change', e => { state.sort = e.target.value; savePrefs(); render(); });
+  for (const b of document.querySelectorAll('[data-view]')) {
+    b.addEventListener('click', () => { state.view = b.dataset.view; savePrefs(); render(); });
+  }
+  addEventListener('keydown', e => {
+    if (e.key === '/' && !e.target.closest('input, textarea, select, dialog')) { e.preventDefault(); q.focus(); q.select(); }
+    if (e.key === 'Escape' && document.activeElement === q) { q.value = ''; state.q = ''; render(); q.blur(); }
+  });
+  // Come back to a fresh list (new versions, comments) after a while away.
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hiddenAt = Date.now();
+    else if (Date.now() - hiddenAt > 30000) load();
+  });
+  load();
+})();
+</script>
+</body>
+</html>

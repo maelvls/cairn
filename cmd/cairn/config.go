@@ -14,6 +14,40 @@ import (
 type cliConfig struct {
 	Host  string `json:"host"`
 	Token string `json:"token"`
+	// Pushed remembers which artifact each directory was pushed to, keyed
+	// by "<host> <absolute dir>", so `cairn push <dir>` needs no --artifact
+	// the next time.
+	Pushed map[string]string `json:"pushed,omitempty"`
+}
+
+// saveLogin stores new credentials, keeping the rest of the configuration.
+func saveLogin(host, token string) error {
+	cfg := loadConfig()
+	cfg.Host, cfg.Token = host, token
+	return saveConfig(cfg)
+}
+
+func pushKey(host, dir string) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	return host + " " + filepath.Clean(dir)
+}
+
+// pushedArtifact is the artifact dir was last pushed to on host, if any.
+func pushedArtifact(host, dir string) string {
+	return loadConfig().Pushed[pushKey(host, dir)]
+}
+
+// rememberPush records where dir was pushed. Failing to save is not worth
+// failing the push for.
+func rememberPush(host, dir, artifactID string) {
+	cfg := loadConfig()
+	if cfg.Pushed == nil {
+		cfg.Pushed = map[string]string{}
+	}
+	cfg.Pushed[pushKey(host, dir)] = artifactID
+	saveConfig(cfg)
 }
 
 func configPath() (string, error) {

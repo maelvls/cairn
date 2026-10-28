@@ -170,19 +170,22 @@ func acceptsHTML(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
-// Shared shell: /shared/{id}[/{vid}] wraps the fullscreen page in a frame
-// with artifact metadata and a version picker.
-
-type shellVersion struct {
-	*store.Version
-	Current bool
-}
+// Viewer: /shared/{id}[/{vid}] frames the fullscreen page with a toolbar
+// and a side panel (details and versions, comments, data, source). Without
+// {vid} it follows the latest version, switching as new ones are published.
 
 type shellData struct {
 	Artifact *store.Artifact
 	Version  *store.Version
-	Versions []shellVersion
-	User     *store.User
+	Boot     map[string]any // the page script's initial state
+}
+
+// pageUser is what Cairn's pages know about the signed-in user.
+func pageUser(u *store.User) map[string]any {
+	if u == nil {
+		return nil
+	}
+	return map[string]any{"id": u.ID, "name": u.Name, "email": u.Email, "isAdmin": u.IsAdmin}
 }
 
 func (s *Server) handleShared(w http.ResponseWriter, r *http.Request) {
@@ -212,13 +215,17 @@ func (s *Server) handleShared(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	data := shellData{Artifact: s.withResources(a), Version: current}
-	for _, v := range versions {
-		data.Versions = append(data.Versions, shellVersion{Version: v, Current: v.ID == current.ID})
+	u, _ := s.currentUser(r)
+	a = s.withResources(a)
+	boot := map[string]any{
+		"artifact": a,
+		"version":  current,
+		"versions": versions,
+		"follow":   r.PathValue("vid") == "",
+		"user":     pageUser(u),
+		"pinned":   u != nil && s.store.IsPinned(u.ID, a.ID),
 	}
-	if u, err := s.currentUser(r); err == nil {
-		data.User = u
-	}
+	data := shellData{Artifact: a, Version: current, Boot: boot}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if err := s.templates().ExecuteTemplate(w, "shell.html", data); err != nil {
 		s.log.Error("render shell", "err", err)
@@ -252,11 +259,38 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if u, err := s.currentUser(r); err == nil && u != nil {
-		http.Redirect(w, r, "/admin", http.StatusFound)
+	u, err := s.currentUser(r)
+	if err != nil || u == nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/login", http.StatusFound)
+	// The gallery: every signed-in user's home, admin or not.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if err := s.templates().ExecuteTemplate(w, "gallery.html", map[string]any{
+		"User": u,
+		"Boot": map[string]any{"user": pageUser(u), "mcpUrl": s.mcpResource()},
+	}); err != nil {
+		s.log.Error("render gallery", "err", err)
+	}
+}
+
+// serveUIAsset serves the stylesheet and helpers Cairn's pages share.
+func (s *Server) serveUIAsset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("file")
+	data, err := web.UI.ReadFile(name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	switch path.Ext(name) {
+	case ".css":
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	case ".js":
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Write(data)
 }
 
 // handleAdminPage serves the admin UI; the page itself talks to the JSON

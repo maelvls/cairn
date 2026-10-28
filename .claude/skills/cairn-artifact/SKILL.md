@@ -1,6 +1,6 @@
 ---
 name: cairn-artifact
-description: Build and publish web artifacts (single-page apps with optional shared SQLite data) to a Cairn server using the cairn CLI. Use when asked to create, publish, update, or share an artifact, dashboard, tool, or mini-app on Cairn, or to read/write an artifact's shared database.
+description: Build and publish web artifacts (single-page apps with optional shared SQLite data) to a Cairn server using the cairn CLI. Use when asked to create, publish, update, or share an artifact, dashboard, tool, or mini-app on Cairn, to act on the comments people left on one, or to read/write an artifact's shared database.
 ---
 
 # Publishing artifacts to Cairn
@@ -80,11 +80,18 @@ curl -sf -X POST "$CAIRN_HOST/api/artifacts/<artifactId>/resources" \
   -d '{"type":"claude-session","value":"<session-id>"}'
 ```
 
-The `--json` output contains the artifact id, version id and the URL. Always
-report the URLs to the user:
+Without `--artifact`, `cairn push ./artifact` publishes to the artifact this
+directory was last pushed to from this machine, or creates a new private one
+named after the directory (its parent for `dist`, `build`…). The artifact's
+title comes from the page's `<title>` unless it has a description already.
 
-- full screen: `<host>/artifacts/<artifactId>/`
-- shared view (metadata + version picker): `<host>/shared/<artifactId>`
+The `--json` output contains the artifact id, version id and the URLs. Always
+report the viewer URL to the user:
+
+- viewer (`viewer_url`): `<host>/shared/<artifactId>` — the page with its
+  versions, comments, data and source; it follows the latest version and
+  reloads by itself when you push again, so the user can keep it open
+- full screen (`url`): `<host>/artifacts/<artifactId>/<versionId>/`
 
 Public vs private: add `--public` to `push --create` (or
 `cairn artifact update <id> --public true|false`) — public means anyone with
@@ -111,7 +118,26 @@ unclear.
   previous version with `cairn.db.query(sql, params, {version: '<oldVid>'})`
   (read-only) inside a `cairn.db.migrate()` step.
 
-### 5. Inspect data when needed
+### 5. Act on feedback
+
+People comment on artifacts in the viewer. When asked to improve an
+artifact, or to "address the feedback", read the open threads first:
+
+```sh
+cairn comments list <id>            # open threads, with their comment ids
+cairn comments list <id> --all      # resolved ones too
+```
+
+After publishing the change, answer each thread you handled and resolve it,
+so the reviewer sees what changed and where:
+
+```sh
+cairn comments add <id> "Darker palette in v3 (#3)." --reply <comment-id> --resolve
+```
+
+Leave threads you did not handle open, and say why in a reply when relevant.
+
+### 6. Inspect data when needed
 
 ```sh
 cairn db query --artifact <id> --json "SELECT * FROM items LIMIT 10"
