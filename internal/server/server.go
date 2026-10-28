@@ -42,6 +42,13 @@ type Config struct {
 	// on another host when a reverse proxy forwards it (default:
 	// BaseURL/mcp). OAuth access tokens are bound to it.
 	MCPURL string
+
+	// NtfyURL is the ntfy server comment notifications are published to
+	// (default https://ntfy.sh); each user picks their own topic.
+	NtfyURL string
+	// NtfyToken, when set, is sent as a bearer token: a self-hosted ntfy
+	// with access control.
+	NtfyToken string
 }
 
 func (c *Config) applyDefaults() {
@@ -63,6 +70,9 @@ func (c *Config) applyDefaults() {
 	if c.MaxQueryRows == 0 {
 		c.MaxQueryRows = 10_000
 	}
+	if c.NtfyURL == "" {
+		c.NtfyURL = "https://ntfy.sh"
+	}
 	if c.Logger == nil {
 		c.Logger = slog.Default()
 	}
@@ -83,6 +93,8 @@ type Server struct {
 	googleAuthURL  string
 	googleTokenURL string
 	httpClient     *http.Client
+
+	notifyWG sync.WaitGroup // background comment notifications (notify.go)
 
 	tmpl     *template.Template
 	tmplOnce sync.Once
@@ -193,6 +205,11 @@ func (s *Server) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	err := srv.Shutdown(shutdownCtx)
+	if err == nil {
+		// No handler left to start one: let deliveries in flight end
+		// (within notifyTimeout).
+		s.notifyWG.Wait()
+	}
 	s.dbs.Close()
 	s.store.Close()
 	return err

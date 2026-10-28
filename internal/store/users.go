@@ -105,6 +105,53 @@ func (s *Store) DeleteUser(userID string) error {
 	return s.exec1(`DELETE FROM users WHERE id = ?`, userID)
 }
 
+// NtfyTopic is the ntfy topic the user's comment notifications go to, empty
+// when they haven't set one. Kept out of User: whoever knows a topic can read
+// it, so only its owner sees it.
+func (s *Store) NtfyTopic(userID string) (string, error) {
+	var topic string
+	err := s.db.QueryRow(`SELECT COALESCE(ntfy_topic, '') FROM users WHERE id = ?`, userID).Scan(&topic)
+	return topic, err
+}
+
+// SetNtfyTopic sets (or, with an empty topic, clears) the user's topic.
+func (s *Store) SetNtfyTopic(userID, topic string) error {
+	return s.exec1(`UPDATE users SET ntfy_topic = ? WHERE id = ?`, nullable(topic), userID)
+}
+
+// NotifyTarget is someone to tell about a new comment.
+type NotifyTarget struct {
+	UserID string
+	Topic  string
+}
+
+// CommentNotifyTargets lists who hears about a new comment on artifactID by
+// authorID: the artifact's creator, the users who pinned it and, for a reply
+// in rootID's thread, everyone who wrote in that thread. Never the author,
+// only enabled users with a topic, each once.
+func (s *Store) CommentNotifyTargets(artifactID, rootID, authorID string) ([]NotifyTarget, error) {
+	rows, err := s.db.Query(`SELECT id, ntfy_topic FROM users
+		WHERE COALESCE(ntfy_topic, '') != '' AND disabled = 0 AND id != ?
+		AND (id = (SELECT created_by FROM artifacts WHERE id = ?)
+			OR id IN (SELECT user_id FROM pins WHERE artifact_id = ?)
+			OR id IN (SELECT user_id FROM comments WHERE artifact_id = ? AND ? != '' AND (id = ? OR parent_id = ?)))
+		ORDER BY created_at, id`,
+		authorID, artifactID, artifactID, artifactID, rootID, rootID, rootID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []NotifyTarget
+	for rows.Next() {
+		var t NotifyTarget
+		if err := rows.Scan(&t.UserID, &t.Topic); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 // exec1 runs a statement that must affect exactly one row, mapping "no rows"
 // to ErrNotFound.
 func (s *Store) exec1(query string, args ...any) error {

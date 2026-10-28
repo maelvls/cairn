@@ -112,6 +112,7 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		s.store.ResolveComment(a.ID, c.ParentID, "")
 	}
 	s.log.Info("comment added", "artifact", a.ID, "comment", c.ID, "via", c.Via, "by", u.Email)
+	s.notifyComment(a, u, c)
 	writeJSON(w, http.StatusCreated, c)
 }
 

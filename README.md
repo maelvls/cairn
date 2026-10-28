@@ -132,7 +132,9 @@ picker, copy link, full screen) and a side panel:
 - **Comments** (`c`): threads on the artifact for signed-in users, each
   remembering the version it was written on; replies, resolve, reopen.
   Agents read and answer them (MCP `list_comments`/`add_comment`,
-  `cairn comments`), and their comments are marked as such.
+  `cairn comments`), and their comments are marked as such. New comments
+  can push a notification to your phone over [ntfy](https://ntfy.sh): click
+  your name in the gallery header → Notifications…
 - **Data** (`d`): the version's tables with row counts, a table browser, a
   SQL console, the database download and the file storage.
 - **Source** (`s`): the version's published files. "Compare with" picks
@@ -215,6 +217,8 @@ one artifact the request fails with `409 Conflict`; use the artifact id then.
 POST   /api/auth/login                      {email, password[, confirm]}  (403 with Google sign-in)
 GET    /api/auth/config                     {password, google}: sign-in methods
 GET    /api/me
+GET|PATCH /api/me/settings                  {ntfyTopic} (empty: none), plus the server's ntfyUrl
+POST   /api/me/settings/test-notification   [{ntfyTopic}] sends a test to it, else to the saved topic
 GET    /api/users                           directory: id, name, email (any authed user)
 GET    /api/artifacts                       ?name= ?limit= ?offset=  most recently updated first, with
                                             latestVersion, versionCount, openComments, pinned
@@ -384,6 +388,18 @@ curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" 
   working. `cairn login --host <url>` opens the browser: after Google
   sign-in, `/auth/cli` asks to confirm, then hands a token to the CLI waiting
   on `127.0.0.1`.
+- **Comment notifications** — each user sets their own [ntfy](https://ntfy.sh)
+  topic (gallery → their name → Notifications…, with a test button) and
+  subscribes to it in the ntfy app. A new comment or reply notifies the
+  artifact's creator, the users who pinned it and the people who already
+  wrote in the thread — never its author, nor disabled users. Messages go to
+  `--ntfy-url` (`CAIRN_NTFY_URL`, default `https://ntfy.sh`; point it at a
+  self-hosted ntfy to keep comments off ntfy.sh, with `CAIRN_NTFY_TOKEN` if
+  it requires an access token) through ntfy's JSON publish
+  API, in the background (10 s timeout, failures logged, never failing the
+  comment). With `--base-url` set, tapping a notification opens the
+  artifact's comments. ntfy topics are readable by whoever knows their name:
+  pick hard-to-guess ones.
 
 ## Cairn vs. Claude Artifacts
 

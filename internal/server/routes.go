@@ -18,6 +18,9 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /auth/cli", s.handleCLIAuthPage)
 	mux.HandleFunc("POST /auth/cli", s.handleCLIAuthConfirm)
 	mux.HandleFunc("GET /api/me", s.requireAuth(s.handleMe))
+	mux.HandleFunc("GET /api/me/settings", s.requireAuth(s.handleGetSettings))
+	mux.HandleFunc("PATCH /api/me/settings", s.requireAuth(s.handleUpdateSettings))
+	mux.HandleFunc("POST /api/me/settings/test-notification", s.requireAuth(s.handleTestNotification))
 
 	// OAuth 2.1 for MCP clients (oauth.go)
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleAuthServerMetadata)

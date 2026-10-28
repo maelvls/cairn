@@ -63,6 +63,8 @@
     list: '<path d="M9 6.5h11"/><path d="M9 12h11"/><path d="M9 17.5h11"/><path d="M4.5 6.5h.5"/><path d="M4.5 12h.5"/><path d="M4.5 17.5h.5"/>',
     reply: '<path d="M10 8.5 5 13l5 4.5"/><path d="M5 13h9a5 5 0 0 0 5-5V6.5"/>',
     file: '<path d="M7 3.5h6.5L18 8v12.5H7z"/><path d="M13.5 3.5V8H18"/>',
+    bell: '<path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 1.5H5z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/>',
+    logout: '<path d="M14 4.5H6.5a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1H14"/><path d="M10.5 12h9"/><path d="m16.5 8.5 3.5 3.5-3.5 3.5"/>',
   };
   function icon(name, attrs) {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -147,8 +149,10 @@
   }
 
   // ---------------------------------------------------------- dialog
-  // ask({title, text, ok, danger, fields:[{name, label, value, type, placeholder}]})
-  // resolves to the field values (or true), or null when cancelled.
+  // ask({title, text, ok, danger, fields:[{name, label, value, type, placeholder}], extra})
+  // resolves to the field values (or true), or null when cancelled. text can
+  // be nodes (links); extra(form) returns more nodes to put above the
+  // buttons (type=button ones don't close the dialog).
   function ask(o) {
     return new Promise(resolve => {
       const form = h('form', {method: 'dialog'});
@@ -164,6 +168,7 @@
           ? h('label.check', input, f.label)
           : h('label.field', h('span', f.label), input));
       }
+      if (o.extra) append(form, [o.extra(form)]);
       const ok = h('button.btn' + (o.danger ? '.danger' : '.primary'), {value: 'ok'}, o.ok || 'OK');
       if (o.danger) ok.style.cssText = 'color:var(--danger); border-color:var(--danger-dim)';
       form.append(h('div.row', h('button.btn', {value: 'cancel', formnovalidate: true}, 'Cancel'), ok));

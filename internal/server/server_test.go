@@ -14,20 +14,30 @@ import (
 
 // testServer boots a full server on a temp data dir with a bootstrap admin.
 func testServer(t *testing.T) (*Server, *httptest.Server) {
+	return testServerWith(t, nil)
+}
+
+// testServerWith is testServer with a tweak of the configuration.
+func testServerWith(t *testing.T, tweak func(*Config)) (*Server, *httptest.Server) {
 	t.Helper()
-	s, err := New(Config{
+	cfg := Config{
 		DataDir:       t.TempDir(),
 		AdminEmail:    "admin@example.com",
 		AdminPassword: "admin-password",
 		TokenTTL:      time.Hour,
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+	}
+	if tweak != nil {
+		tweak(&cfg)
+	}
+	s, err := New(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(func() {
 		ts.Close()
+		s.notifyWG.Wait()
 		s.dbs.Close()
 		s.store.Close()
 	})
