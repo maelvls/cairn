@@ -23,9 +23,9 @@ import (
 )
 
 // MCP endpoint (Streamable HTTP, stateless): POST /mcp takes one JSON-RPC
-// message (or a batch) and answers with plain JSON, never an SSE stream. It
-// sits behind requireAuth like the rest of the API: an OAuth gateway in front
-// of Cairn holds an API key and sends it as the bearer token.
+// message (or a batch) and answers with plain JSON, never an SSE stream.
+// Clients authenticate with OAuth 2.1 access tokens from Cairn's own
+// authorization server (oauth.go); session tokens and API keys work too.
 //
 // Tools don't reimplement anything: each one replays the matching /api route
 // in-process with the caller's identity (see mcpAPI), so validation, limits

@@ -65,6 +65,9 @@ type Claims struct {
 	TokenVersion int    `json:"tkv"`
 	IssuedAt     int64  `json:"iat"`
 	ExpiresAt    int64  `json:"exp"`
+	// Audience is set on OAuth access tokens only: the resource (MCP
+	// endpoint URL) they were issued for. Session tokens have none.
+	Audience string `json:"aud,omitempty"`
 }
 
 var b64 = base64.RawURLEncoding

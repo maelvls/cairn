@@ -37,6 +37,11 @@ type Config struct {
 	// and BaseURL is required to build the redirect URI.
 	GoogleClientID     string
 	GoogleClientSecret string
+
+	// MCPURL is the external URL MCP clients use for POST /mcp, which can be
+	// on another host when a reverse proxy forwards it (default:
+	// BaseURL/mcp). OAuth access tokens are bound to it.
+	MCPURL string
 }
 
 func (c *Config) applyDefaults() {

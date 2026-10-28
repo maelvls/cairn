@@ -42,13 +42,18 @@ func (s *Server) currentUser(r *http.Request) (*store.User, error) {
 	if auth.IsAPIKey(cred) {
 		return s.userFromAPIKey(cred)
 	}
-	return s.userFromJWT(cred)
+	return s.userFromJWT(r, cred)
 }
 
-func (s *Server) userFromJWT(token string) (*store.User, error) {
+func (s *Server) userFromJWT(r *http.Request, token string) (*store.User, error) {
 	claims, err := auth.VerifyJWT(s.secret, token)
 	if err != nil {
 		return nil, err
+	}
+	// OAuth access tokens are bound to the MCP endpoint: they open nothing
+	// else, and only the resource they were issued for.
+	if claims.Audience != "" && (r.URL.Path != "/mcp" || claims.Audience != s.mcpResource()) {
+		return nil, auth.ErrInvalidToken
 	}
 	u, err := s.store.UserByID(claims.UserID)
 	if err != nil {

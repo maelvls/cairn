@@ -19,6 +19,21 @@ func (s *Server) routes() {
 	mux.HandleFunc("POST /auth/cli", s.handleCLIAuthConfirm)
 	mux.HandleFunc("GET /api/me", s.requireAuth(s.handleMe))
 
+	// OAuth 2.1 for MCP clients (oauth.go)
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.handleAuthServerMetadata)
+	mux.HandleFunc("GET /.well-known/openid-configuration", s.handleAuthServerMetadata)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", s.handleProtectedResourceMetadata)
+	if p := s.protectedResourcePath(); p != "/.well-known/oauth-protected-resource" {
+		mux.HandleFunc("GET "+p, s.handleProtectedResourceMetadata)
+	}
+	mux.HandleFunc("POST /oauth/register", s.handleOAuthRegister)
+	mux.HandleFunc("GET /oauth/authorize", s.handleOAuthAuthorize)
+	mux.HandleFunc("POST /oauth/authorize", s.handleOAuthApprove)
+	mux.HandleFunc("POST /oauth/token", s.handleOAuthToken)
+	for _, p := range []string{"/.well-known/oauth-authorization-server", "/oauth/register", "/oauth/token", "/mcp"} {
+		mux.HandleFunc("OPTIONS "+p, s.handleOAuthPreflight)
+	}
+
 	// User directory (any authenticated user)
 	mux.HandleFunc("GET /api/users", s.requireAuth(s.handleUsers))
 	mux.HandleFunc("GET /api/users/{id}", s.requireAuth(s.handleUserByID))
@@ -62,7 +77,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("DELETE /api/artifacts/{id}/versions/{vid}/files/{path...}", s.requireAuth(s.withArtifact(s.handleFileDelete)))
 
 	// MCP (Streamable HTTP, stateless: no SSE stream to GET)
-	mux.HandleFunc("POST /mcp", s.requireAuth(s.handleMCP))
+	mux.HandleFunc("POST /mcp", s.requireMCPAuth(s.handleMCP))
 	mux.HandleFunc("GET /mcp", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "POST")
 		writeError(w, http.StatusMethodNotAllowed, "this MCP server does not stream; POST JSON-RPC messages")

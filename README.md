@@ -5,7 +5,7 @@
 > [aloisdeniel/cairn](https://github.com/aloisdeniel/cairn)). It adds Google
 > sign-in, which replaces email/password when a Google OAuth client is
 > configured (see "Google sign-in" under [Operations](#operations)), and an
-> [MCP endpoint](#mcp) for AI clients. Releases
+> [MCP endpoint with OAuth 2.1](#mcp) for AI clients. Releases
 > are tagged `v<upstream>-google.<n>` and ship the same binaries and
 > multi-arch image as upstream:
 >
@@ -243,12 +243,50 @@ there.
 ## MCP
 
 `POST /mcp` is an [MCP](https://modelcontextprotocol.io) server (Streamable
-HTTP, stateless: plain JSON answers, no SSE stream, so `GET /mcp` is 405). It
-authenticates like the API, with `Authorization: Bearer <api-key>` (or a JWT),
-and acts as that key's user. Cairn doesn't do OAuth itself: to plug it into a
-client that wants OAuth 2.1 (claude.ai, grok.com…), put an OAuth gateway in
-front that holds an API key, e.g. [mcp-auth-proxy](https://github.com/sigbit/mcp-auth-proxy)
-with `--proxy-bearer-token`, or MCPJungle with `bearer_token`.
+HTTP, stateless: plain JSON answers, no SSE stream, so `GET /mcp` is 405).
+Add `<mcp-url>` as a connector in claude.ai, grok.com, ChatGPT… and sign in:
+nothing to copy.
+
+Clients authenticate with **OAuth 2.1**, Cairn being its own authorization
+server (`internal/server/oauth.go`, needs `--base-url`, which is the issuer):
+
+- `POST /mcp` without a token answers 401 with
+  `WWW-Authenticate: Bearer resource_metadata="…"`, pointing at the protected
+  resource metadata (RFC 9728), which names Cairn as the authorization server
+  (`/.well-known/oauth-authorization-server`, RFC 8414).
+- Clients register themselves (`POST /oauth/register`, RFC 7591), public
+  (`none`) or with a secret. Redirect URIs must be https, http on loopback, or
+  a private-use scheme.
+- `/oauth/authorize` sends the user through the usual sign-in (Google when
+  configured), then a consent page names the client and where it redirects.
+  Only existing Cairn accounts can approve, as everywhere else. PKCE S256 is
+  mandatory.
+- `/oauth/token`: 5-minute single-use codes, 1-hour access tokens, 30-day
+  refresh tokens rotated at each use and revoked with the account's sessions
+  (disable, password reset). Only hashes are stored.
+- Access tokens are bound to the MCP endpoint (`aud`): they are refused
+  everywhere else, so a connector can't call `/api` directly.
+
+`--mcp-url` (`CAIRN_MCP_URL`) is the endpoint's external URL when a reverse
+proxy serves it from another host or path (default `<base-url>/mcp`). The
+proxy forwards that path to `/mcp` and
+`/.well-known/oauth-protected-resource<path>` as is; authorization stays on
+`<base-url>`, where the sign-in cookie lives. For example, with
+`--mcp-url https://mcp.example.com/cairn/mcp`, in Caddy:
+
+```
+https://mcp.example.com {
+	handle /cairn/mcp {
+		rewrite * /mcp
+		reverse_proxy cairn:8787
+	}
+	handle /.well-known/oauth-protected-resource/cairn/mcp {
+		reverse_proxy cairn:8787
+	}
+}
+```
+
+API keys and session tokens work on `/mcp` too, for scripts.
 
 | Tool | |
 |------|-|

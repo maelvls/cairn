@@ -25,6 +25,7 @@ func runServe(args []string) error {
 	queryTimeout := fs.Duration("query-timeout", envDurationOr("CAIRN_QUERY_TIMEOUT", 10*time.Second), "shared database query timeout")
 	googleClientID := fs.String("google-client-id", envOr("CAIRN_GOOGLE_CLIENT_ID", ""), "Google OAuth client id: replaces email/password sign-in with Google (needs --base-url)")
 	googleClientSecret := fs.String("google-client-secret", envOr("CAIRN_GOOGLE_CLIENT_SECRET", ""), "Google OAuth client secret")
+	mcpURL := fs.String("mcp-url", envOr("CAIRN_MCP_URL", ""), "external URL of the MCP endpoint when a proxy serves it elsewhere (default <base-url>/mcp); OAuth tokens are bound to it")
 	maxQueryRows := fs.Int("max-query-rows", int(envInt64Or("CAIRN_MAX_QUERY_ROWS", 10000)), "max rows returned per query")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -45,6 +46,7 @@ func runServe(args []string) error {
 
 		GoogleClientID:     *googleClientID,
 		GoogleClientSecret: *googleClientSecret,
+		MCPURL:             *mcpURL,
 	})
 	if err != nil {
 		return err

@@ -43,6 +43,11 @@ gofmt -l . && go vet ./...
   in-process through `s.mux` with the caller's user in the context
   (`mcpAPI`); add a tool by calling the API, not the store, so the API's
   rules apply. `read_source` is the exception (no API serves raw sources).
+- `internal/server/oauth.go` — OAuth 2.1 authorization server for MCP
+  clients (RFC 9728/8414/7591, PKCE S256, rotating refresh tokens; tables in
+  `migrations/002_oauth.sql`, hashes only). Access tokens are JWTs with `aud`
+  = the MCP URL; `userFromJWT` refuses any `aud` token outside `/mcp`. Keep
+  it that way: an MCP connector must not become a full API session.
 - `internal/client/` — Go API client used by the CLI (zips + multipart push).
 - `examples/` — reference artifacts: `guestbook` (single file, exercised by
   e2e), `poll` (multi-file + assets + config fetch), `drive` (file storage as
