@@ -10,7 +10,9 @@
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/_ui/ui.css">
 <style>
-  body{height:100svh; display:grid; grid-template-rows:auto auto minmax(0,1fr); overflow:hidden}
+  /* minmax(0,1fr): the column never grows to the toolbar's min-content
+     width, which pushed the panel off phone screens */
+  body{height:100svh; display:grid; grid-template-rows:auto auto minmax(0,1fr); grid-template-columns:minmax(0,1fr); overflow:hidden}
   /* explicit rows: the banner is often hidden, the stage still gets 1fr */
   .topbar{grid-row:1; position:relative; gap:.45rem .7rem; padding-block:.4rem}
   .banner{grid-row:2}
@@ -27,6 +29,14 @@
   .label{display:inline}
   @media (max-width:1100px){ .tools .label{display:none} }
   @media (max-width:700px){ .name small, #copyBtn, #reloadBtn{display:none} #version{max-width:8rem} }
+  /* Phones: title and version on the first line, the tools on a second
+     one; visibility stays in Details. */
+  @media (max-width:560px){
+    .topbar{flex-wrap:wrap}
+    #visibility, .tools .sep{display:none}
+    .name{flex:1 1 0}
+    .tools{order:9; flex:1 1 100%; justify-content:space-between}
+  }
 
   .banner{
     display:flex; align-items:center; gap:.4rem .8rem; flex-wrap:wrap;
@@ -441,11 +451,26 @@
     // html2canvas clones the whole DOM: huge pages keep the live preview.
     if (doc.getElementsByTagName('*').length > 8000) throw new Error('page too large');
     const render = await loadHtml2canvas();
-    const shot = await render(doc.documentElement, {
-      x: 0, y: 0, scrollX: 0, scrollY: 0, width: 1280, height: 800,
-      windowWidth: 1280, windowHeight: 800, scale: THUMB_W / 1280,
-      useCORS: true, logging: false,
-    });
+    // html2canvas clones the page into an iframe it opens with
+    // document.write, whose base URL is this viewer's: relative stylesheets
+    // (./style.css) would 404 and the capture come out unstyled. A <base>
+    // pointing at the page itself is cloned along and fixes resolution.
+    let tmpBase = null;
+    if (!doc.querySelector('base[href]')) {
+      tmpBase = doc.createElement('base');
+      tmpBase.href = doc.location.href;
+      doc.head.prepend(tmpBase);
+    }
+    let shot;
+    try {
+      shot = await render(doc.documentElement, {
+        x: 0, y: 0, scrollX: 0, scrollY: 0, width: 1280, height: 800,
+        windowWidth: 1280, windowHeight: 800, scale: THUMB_W / 1280,
+        useCORS: true, logging: false,
+      });
+    } finally {
+      tmpBase?.remove();
+    }
     // Cover-crop from the top onto the exact thumbnail size.
     const out = h('canvas', {width: THUMB_W, height: THUMB_H});
     const k = Math.max(THUMB_W / shot.width, THUMB_H / shot.height);
@@ -1229,7 +1254,7 @@
     return [h('div', {style: {display: 'flex', alignItems: 'center', gap: '.5rem'}},
       h('b.mono', {style: {flex: 1, overflow: 'hidden', textOverflow: 'ellipsis'}}, path),
       links.map(([label, url]) => h('a.btn.small', {href: url, target: '_blank', rel: 'noopener'}, icon('external'), label))),
-      note ? h('p.hint', note) : null];
+      note ? h('p.hint', note) : null].filter(Boolean); // replaceChildren would print "null"
   }
   async function showFile(v, f, view, note) {
     const seq = ++viewSeq;
