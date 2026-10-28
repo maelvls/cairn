@@ -128,6 +128,10 @@ cairn comments list <id>            # open threads, with their comment ids
 cairn comments list <id> --all      # resolved ones too
 ```
 
+A thread about one element of the page shows an `element:` line: its text
+in quotes, its CSS selector and the page. Find it in the source by that text
+first (the selector is a DOM path, brittle across rebuilds).
+
 After publishing the change, answer each thread you handled and resolve it,
 so the reviewer sees what changed and where:
 
@@ -136,6 +140,12 @@ cairn comments add <id> "Darker palette in v3 (#3)." --reply <comment-id> --reso
 ```
 
 Leave threads you did not handle open, and say why in a reply when relevant.
+To start a thread about one element (e.g. to point a reviewer at what
+changed), give its text and/or a selector; replies never take these flags:
+
+```sh
+cairn comments add <id> "New legend here." --quote "Results so far" --selector "main > h2" [--page index.html]
+```
 
 ### 6. Inspect data when needed
 

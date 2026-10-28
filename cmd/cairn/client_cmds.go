@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -550,6 +551,7 @@ func countThreads(cs []*store.Comment) int {
 func runComments(args []string) error {
 	const usage = `usage: cairn comments list <artifact> [--all|--resolved] [--json]
        cairn comments add <artifact> "<text>" [--reply <comment-id>] [--resolve]
+                          [--selector <css>] [--quote <text>] [--page <path>]
        cairn comments resolve <artifact> <comment-id> [--reopen]`
 	if len(args) == 0 {
 		return errors.New(usage)
@@ -624,7 +626,7 @@ func commentsList(args []string) error {
 			seq[v.ID] = v.Seq
 		}
 	}
-	for _, cm := range cs {
+	for _, cm := range byThread(cs) {
 		indent := ""
 		if cm.ParentID != "" {
 			indent = "    ↳ "
@@ -643,6 +645,20 @@ func commentsList(args []string) error {
 			fmt.Println()
 		}
 		fmt.Printf("%s[%s] %s\n", indent, cm.ID, strings.Join(meta, " · "))
+		if an := cm.Anchor; an != nil {
+			// The element the thread is about: its text, then where it is.
+			where := []string{}
+			if an.Quote != "" {
+				where = append(where, strconv.Quote(an.Quote))
+			}
+			if an.Selector != "" {
+				where = append(where, an.Selector)
+			}
+			if an.Path != "" {
+				where = append(where, "on "+an.Path)
+			}
+			fmt.Printf("  element: %s\n", strings.Join(where, " · "))
+		}
 		for _, line := range strings.Split(cm.Body, "\n") {
 			fmt.Printf("%s  %s\n", strings.Repeat(" ", len([]rune(indent))), line)
 		}
@@ -650,18 +666,50 @@ func commentsList(args []string) error {
 	return nil
 }
 
+// byThread orders an oldest-first comment list thread by thread: each root
+// followed by its replies, so a late reply is printed under its own thread.
+func byThread(cs []*store.Comment) []*store.Comment {
+	replies := map[string][]*store.Comment{}
+	roots := map[string]bool{}
+	for _, c := range cs {
+		if c.ParentID == "" {
+			roots[c.ID] = true
+		} else {
+			replies[c.ParentID] = append(replies[c.ParentID], c)
+		}
+	}
+	out := make([]*store.Comment, 0, len(cs))
+	for _, c := range cs {
+		switch {
+		case c.ParentID == "":
+			out = append(out, c)
+			out = append(out, replies[c.ID]...)
+		case !roots[c.ParentID]:
+			out = append(out, c) // its root is not listed
+		}
+	}
+	return out
+}
+
 func commentsAdd(args []string) error {
 	fs := flag.NewFlagSet("comments add", flag.ExitOnError)
 	reply := fs.String("reply", "", "id of a comment of the thread to reply to")
 	version := fs.String("version", "", "version the comment is about (default: latest)")
 	resolve := fs.Bool("resolve", false, "resolve the thread after replying")
+	selector := fs.String("selector", "", "start a thread about the element matching this CSS selector")
+	quote := fs.String("quote", "", "start a thread about the element with this text (300 characters max)")
+	page := fs.String("page", "", "page of the version the element is on (default: the main page)")
 	jsonOut := fs.Bool("json", false, "JSON output")
 	pos, err := positionals(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(pos) != 2 {
-		return errors.New(`usage: cairn comments add <artifact> "<text>" [--reply <comment-id>] [--resolve]`)
+		return errors.New(`usage: cairn comments add <artifact> "<text>" [--reply <comment-id>] [--resolve] [--selector <css>] [--quote <text>] [--page <path>]`)
+	}
+	var anchor *store.CommentAnchor
+	if *selector != "" || *quote != "" || *page != "" {
+		anchor = &store.CommentAnchor{Selector: *selector, Quote: *quote, Path: *page}
 	}
 	c, err := apiClient()
 	if err != nil {
@@ -675,7 +723,7 @@ func commentsAdd(args []string) error {
 	if err != nil {
 		return err
 	}
-	cm, err := c.AddComment(a.ID, pos[1], *reply, vid)
+	cm, err := c.AddComment(a.ID, pos[1], *reply, vid, anchor)
 	if err != nil {
 		return err
 	}

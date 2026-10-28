@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 
 	"github.com/google/uuid"
 )
@@ -19,20 +20,41 @@ type Comment struct {
 	Body       string `json:"body"`
 	ResolvedAt string `json:"resolvedAt,omitempty"`
 	ResolvedBy string `json:"resolvedBy,omitempty"` // user id
-	CreatedAt  string `json:"createdAt"`
-	UpdatedAt  string `json:"updatedAt"`
+	// Anchor is the element of the page a thread is about; nil for comments
+	// on the whole artifact, and always nil on replies.
+	Anchor    *CommentAnchor `json:"anchor,omitempty"`
+	CreatedAt string         `json:"createdAt"`
+	UpdatedAt string         `json:"updatedAt"`
+}
+
+// CommentAnchor points at an element of a page of the version: Selector is a
+// CSS selector path, Quote the element's text (to find it again once the
+// selector no longer matches), Path the page inside the version
+// ("index.html", "about/"…). Stored as JSON in comments.anchor.
+type CommentAnchor struct {
+	Selector string `json:"selector,omitempty"`
+	Quote    string `json:"quote,omitempty"`
+	Path     string `json:"path,omitempty"`
 }
 
 const commentSelect = `SELECT c.id, c.artifact_id, COALESCE(c.version_id, ''), COALESCE(c.parent_id, ''), COALESCE(c.user_id, ''),
 	COALESCE(NULLIF(u.name, ''), u.email, ''), c.via, c.body, COALESCE(c.resolved_at, ''), COALESCE(c.resolved_by, ''),
-	c.created_at, c.updated_at
+	c.created_at, c.updated_at, COALESCE(c.anchor, '')
 	FROM comments c LEFT JOIN users u ON u.id = c.user_id`
 
 func scanComment(row interface{ Scan(...any) error }) (*Comment, error) {
 	var c Comment
+	var anchor string
 	if err := row.Scan(&c.ID, &c.ArtifactID, &c.VersionID, &c.ParentID, &c.UserID, &c.Author, &c.Via, &c.Body,
-		&c.ResolvedAt, &c.ResolvedBy, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.ResolvedAt, &c.ResolvedBy, &c.CreatedAt, &c.UpdatedAt, &anchor); err != nil {
 		return nil, err
+	}
+	if anchor != "" {
+		// A malformed anchor costs its thread the anchor, not the listing.
+		var a CommentAnchor
+		if json.Unmarshal([]byte(anchor), &a) == nil {
+			c.Anchor = &a
+		}
 	}
 	return &c, nil
 }
@@ -47,9 +69,17 @@ func nullable(s string) any {
 func (s *Store) CreateComment(c *Comment) (*Comment, error) {
 	t := now()
 	c.ID, c.CreatedAt, c.UpdatedAt = uuid.NewString(), t, t
-	_, err := s.db.Exec(`INSERT INTO comments (id, artifact_id, version_id, parent_id, user_id, via, body, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.ArtifactID, nullable(c.VersionID), nullable(c.ParentID), nullable(c.UserID), c.Via, c.Body, c.CreatedAt, c.UpdatedAt)
+	var anchor any // NULL without an anchor
+	if c.Anchor != nil {
+		b, err := json.Marshal(c.Anchor)
+		if err != nil {
+			return nil, err
+		}
+		anchor = string(b)
+	}
+	_, err := s.db.Exec(`INSERT INTO comments (id, artifact_id, version_id, parent_id, user_id, via, body, anchor, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.ArtifactID, nullable(c.VersionID), nullable(c.ParentID), nullable(c.UserID), c.Via, c.Body, anchor, c.CreatedAt, c.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}

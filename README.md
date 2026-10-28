@@ -131,7 +131,10 @@ picker, copy link, full screen) and a side panel:
   replace files, delete), publish a new version by dropping a file.
 - **Comments** (`c`): threads on the artifact for signed-in users, each
   remembering the version it was written on; replies, resolve, reopen.
-  Agents read and answer them (MCP `list_comments`/`add_comment`,
+  "Comment on an element" picks an element of the page (hover outlines it,
+  `Esc` cancels): the thread quotes it, and clicking the quote scrolls to it
+  and flashes it (found by CSS path, else by its text). Agents read and
+  answer them (MCP `list_comments`/`add_comment`,
   `cairn comments`), and their comments are marked as such.
 - **Data** (`d`): the version's tables with row counts, a table browser, a
   SQL console, the database download and the file storage.
@@ -220,7 +223,8 @@ PUT|DELETE /api/artifacts/{id}/pin          pin for the calling user
 POST   /api/artifacts/{id}/resources        {type, value}
 DELETE /api/artifacts/{id}/resources/{rid}
 GET    /api/artifacts/{id}/comments         ?status=open|resolved (default: all), oldest first
-POST   /api/artifacts/{id}/comments         {body, parentId, versionId}
+POST   /api/artifacts/{id}/comments         {body, parentId, versionId, anchor}
+                                            anchor (thread roots only): {selector, quote ≤ 300 chars, path}
 PATCH  /api/artifacts/{id}/comments/{cid}   {body} (author) and/or {resolved}
 DELETE /api/artifacts/{id}/comments/{cid}   author or admin; a root takes its replies
 GET    /api/artifacts/{id}/versions
@@ -259,6 +263,7 @@ cairn push ./dist --artifact my-app --overwrite latest
 cairn push ./my-page            # same directory, same artifact (new one the first time)
 cairn comments list my-app      # open threads left in the viewer
 cairn comments add my-app "Fixed in v3." --reply <comment-id> --resolve
+cairn comments add my-app "Too small" --selector "main > h1" --quote "Results"   # about one element
 cairn db query --artifact my-app --json "SELECT COUNT(*) FROM notes"
 cairn files put ./report.pdf --artifact my-app --path exports/report.pdf
 cairn files list --artifact my-app --json
@@ -344,7 +349,7 @@ API keys and session tokens work on `/mcp` too, for scripts.
 | `read_source` | list or read a version's published files |
 | `db_query`, `db_batch` | SQL on a version's shared database |
 | `list_files`, `read_file`, `write_file`, `delete_file` | a version's file storage |
-| `list_comments`, `add_comment`, `resolve_comment` | feedback threads from the viewer: read them, reply (and resolve) after acting on them |
+| `list_comments`, `add_comment`, `resolve_comment` | feedback threads from the viewer: read them (an `anchor` quotes the element a thread is about, with its CSS selector), reply (and resolve) after acting on them |
 
 `version` defaults to the latest one everywhere. Each tool replays the
 matching `/api` route in-process (`internal/server/mcp.go`), so limits and
