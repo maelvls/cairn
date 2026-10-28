@@ -52,6 +52,11 @@
     pointer-events:none; background:#fff; opacity:0; transition:opacity .3s ease;
   }
   .thumb iframe.loaded{opacity:1}
+  .thumb img{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:top;
+    background:#fff; opacity:0; transition:opacity .3s ease;
+  }
+  .thumb img.loaded{opacity:1}
   .thumb .glyph{
     position:absolute; inset:0; display:grid; place-items:center;
     font-size:42px; font-weight:600; letter-spacing:-.03em; color:rgb(255 255 255 / .82);
@@ -281,7 +286,17 @@
 
   function card(a) {
     const thumb = h('div.thumb', glyph(a));
-    if (a.latestVersion) thumb.dataset.src = '/artifacts/' + a.id + '/' + a.latestVersion.id + '/';
+    const live = a.latestVersion ? '/artifacts/' + a.id + '/' + a.latestVersion.id + '/' : null;
+    if (a.latestVersion?.thumbnail) {
+      // A captured image (see the viewer); a broken one falls back to the
+      // live preview.
+      const img = h('img', {src: a.latestVersion.thumbnail, alt: '', loading: 'lazy', decoding: 'async'});
+      img.addEventListener('load', () => img.classList.add('loaded'));
+      img.addEventListener('error', () => { img.remove(); thumb.dataset.src = live; observeThumbs(); });
+      thumb.append(img);
+    } else if (live) {
+      thumb.dataset.src = live;
+    }
     return h('article.card',
       h('a.cover', {href: viewerURL(a), 'aria-label': title(a)}),
       thumb,
@@ -410,8 +425,9 @@
   }
 
   // --------------------------------------------------------- thumbnails
-  // Live previews: the latest version, scaled down, loaded when scrolled
-  // into view. Sandboxed so previews can't open dialogs or navigate.
+  // Captured images when the viewer uploaded one (card() above), else live
+  // previews: the latest version, scaled down, loaded when scrolled into
+  // view. Sandboxed so previews can't open dialogs or navigate.
   let thumbScale = 0.21;
   const sizer = new ResizeObserver(entries => {
     const w = entries[0].contentRect.width;

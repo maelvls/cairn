@@ -73,6 +73,8 @@ func (s *Server) handleReplaceVersion(w http.ResponseWriter, r *http.Request) {
 	// Open file handles on the old dir keep serving until closed (POSIX);
 	// new requests resolve the new pointer.
 	os.RemoveAll(s.layout.ContentDir(v.ArtifactID, prev))
+	// The thumbnail shows the old content: the next viewer captures anew.
+	s.removeThumbs(v.ArtifactID, v.ID, "")
 	s.describeFromTitle(a, contentDir)
 	v, _ = s.store.VersionByID(v.ArtifactID, v.ID)
 	s.log.Info("version replaced", "artifact", v.ArtifactID, "version", v.ID, "by", requestUser(r).Email)

@@ -118,11 +118,19 @@ fall back to `index.html` for client-side routing, missing assets 404.
 
 ### Gallery and viewer
 
-The **gallery** (`/`) shows every artifact as a card with a live preview of
-its latest version, most recently updated first: search (`/`), filters
-(pinned, mine, public, private, open comments), sort, grid or list. Each user
-pins their own artifacts to the top. Drop an `.html` page or a `.zip` on the
-page (or use "New artifact") to publish one without the CLI.
+The **gallery** (`/`) shows every artifact as a card with a preview of its
+latest version, most recently updated first: search (`/`), filters (pinned,
+mine, public, private, open comments), sort, grid or list. Each user pins
+their own artifacts to the top. Drop an `.html` page or a `.zip` on the page
+(or use "New artifact") to publish one without the CLI.
+
+Previews are **captured thumbnails**: when a signed-in user opens a version
+that has none, the viewer renders the page as a 1280×800 desktop viewport in
+the browser (with a vendored copy of
+[html2canvas](https://html2canvas.hertzen.com) 1.4.1, MIT, served at
+`/_ui/html2canvas.min.js`) and uploads a 640×400 WebP or JPEG. Re-uploading
+the version deletes its thumbnail, so the next visit captures it again. Cards
+without one fall back to a live, scaled-down iframe of the page.
 
 The **viewer** (`/shared/{id}`) frames the artifact with a toolbar (version
 picker, copy link, full screen) and a side panel:
@@ -221,7 +229,8 @@ GET|PATCH /api/me/settings                  {ntfyTopic} (empty: none), plus the 
 POST   /api/me/settings/test-notification   [{ntfyTopic}] sends a test to it, else to the saved topic
 GET    /api/users                           directory: id, name, email (any authed user)
 GET    /api/artifacts                       ?name= ?limit= ?offset=  most recently updated first, with
-                                            latestVersion, versionCount, openComments, pinned
+                                            latestVersion (+ thumbnail URL when captured), versionCount,
+                                            openComments, pinned
 POST   /api/artifacts                       {name, description, public}
 GET|PATCH|DELETE /api/artifacts/{id}
 PUT|DELETE /api/artifacts/{id}/pin          pin for the calling user
@@ -236,6 +245,10 @@ POST   /api/artifacts/{id}/versions         multipart: archive (zip, or a single
 GET|PATCH|DELETE /api/artifacts/{id}/versions/{vid}
 PUT    /api/artifacts/{id}/versions/{vid}   re-upload (data survives)
 GET    /api/artifacts/{id}/versions/{vid}/source     published files: [{path, size, modifiedAt}]
+GET    /api/artifacts/{id}/versions/{vid}/thumbnail  captured preview image (404 when none or stale); signed-in
+                                                     users only, even on public artifacts: it can show the viewer
+PUT    /api/artifacts/{id}/versions/{vid}/thumbnail  raw body: image/webp, image/jpeg or image/png, ≤ 1 MB;
+                                            ?updatedAt= of the captured content (409 if replaced since)
 GET    /api/artifacts/{id}/versions/{vid}/db/tables  tables and views, columns, row counts
 POST   /api/artifacts/{id}/versions/{vid}/db/query   {sql, params}
 POST   /api/artifacts/{id}/versions/{vid}/db/batch   {statements: [{sql, params}]}
@@ -368,7 +381,7 @@ curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" 
 - **Data layout** — everything lives under `--data-dir`: `cairn.db`
   (metadata), `secret.key` (JWT signing), `content/` (extracted version
   uploads), `dbs/` (per-version shared databases), `files/` (per-version file
-  storage).
+  storage), `thumbs/` (gallery thumbnails; derived, safe to delete).
 - **Backup** — `cairn backup --data-dir data --out backup/` snapshots live
   SQLite databases with `VACUUM INTO` and copies the rest. Safe while the
   server runs.

@@ -38,6 +38,9 @@ type Version struct {
 	CreatedAt  string `json:"createdAt"`
 	UpdatedAt  string `json:"updatedAt"`
 	CreatedBy  string `json:"createdBy,omitempty"` // user id
+	// Thumbnail is the URL of a fresh captured thumbnail. Not stored: the
+	// server fills it from the file on disk, in artifact summaries only.
+	Thumbnail string `json:"thumbnail,omitempty"`
 }
 
 const artifactCols = `id, name, description, public, created_at, updated_at, created_by`

@@ -13,17 +13,19 @@ import (
 //	  content/{artifactID}/{contentDir}/...   extracted version files
 //	  dbs/{artifactID}/{versionID}.db         per-version shared databases
 //	  files/{artifactID}/{versionID}/...      per-version file storage
+//	  thumbs/{artifactID}/{versionID}.{ext}   gallery thumbnails captured by the viewer
 //	  tmp/                                    upload staging (same volume => atomic rename)
 //
 // Version databases and file storage live outside the content tree so
-// re-uploading a version never touches its data.
+// re-uploading a version never touches its data. Thumbnails are apart too:
+// they are derived from the content (a re-upload deletes them), not data.
 type Layout struct {
 	Root string
 }
 
 func NewLayout(root string) (Layout, error) {
 	l := Layout{Root: root}
-	for _, dir := range []string{root, l.ContentRoot(), l.DBRoot(), l.FilesRoot(), l.TmpRoot()} {
+	for _, dir := range []string{root, l.ContentRoot(), l.DBRoot(), l.FilesRoot(), l.ThumbsRoot(), l.TmpRoot()} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return Layout{}, err
 		}
@@ -61,4 +63,16 @@ func (l Layout) VersionFilesDir(artifactID, versionID string) string {
 
 func (l Layout) ArtifactFilesRoot(artifactID string) string {
 	return filepath.Join(l.FilesRoot(), artifactID)
+}
+
+func (l Layout) ThumbsRoot() string { return filepath.Join(l.Root, "thumbs") }
+
+// VersionThumb is a version's thumbnail; ext (".webp", ".jpg", ".png")
+// follows the image type, so at most one of them exists at a time.
+func (l Layout) VersionThumb(artifactID, versionID, ext string) string {
+	return filepath.Join(l.ThumbsRoot(), artifactID, versionID+ext)
+}
+
+func (l Layout) ArtifactThumbsRoot(artifactID string) string {
+	return filepath.Join(l.ThumbsRoot(), artifactID)
 }

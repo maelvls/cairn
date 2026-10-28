@@ -148,6 +148,13 @@ func (s *Server) handleListArtifacts(w http.ResponseWriter, r *http.Request) {
 		}
 		as = filtered
 	}
+	for _, a := range as {
+		if v := a.LatestVersion; v != nil {
+			if _, st, ok := s.freshThumb(v); ok {
+				v.Thumbnail = thumbURL(v, st)
+			}
+		}
+	}
 	if as == nil {
 		as = []*store.ArtifactSummary{}
 	}
@@ -218,6 +225,7 @@ func (s *Server) handleDeleteArtifact(w http.ResponseWriter, r *http.Request) {
 	os.RemoveAll(s.layout.ArtifactContentRoot(a.ID))
 	os.RemoveAll(s.layout.ArtifactDBRoot(a.ID))
 	os.RemoveAll(s.layout.ArtifactFilesRoot(a.ID))
+	os.RemoveAll(s.layout.ArtifactThumbsRoot(a.ID))
 	s.log.Info("artifact deleted", "id", a.ID, "by", requestUser(r).Email)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -323,5 +331,6 @@ func (s *Server) handleDeleteVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	os.RemoveAll(s.layout.ContentDir(v.ArtifactID, v.ContentDir))
 	os.RemoveAll(s.layout.VersionFilesDir(v.ArtifactID, v.ID))
+	s.removeThumbs(v.ArtifactID, v.ID, "")
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
