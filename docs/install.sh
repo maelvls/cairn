@@ -4,7 +4,7 @@
 # This copy comes from the maelvls/cairn fork (Google sign-in), whose
 # releases it installs by default:
 #
-#   curl -fsSL https://raw.githubusercontent.com/maelvls/cairn/google-auth/docs/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/maelvls/cairn/mael-fork/docs/install.sh | sh
 #
 # Options (environment variables):
 #   CAIRN_VERSION      install a specific tag (default: latest release)

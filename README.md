@@ -1,8 +1,9 @@
 # Cairn
 
 > **Fork [maelvls/cairn](https://github.com/maelvls/cairn)**, whose main
-> branch is `google-auth` (there is no `main` here; upstream's is
-> [aloisdeniel/cairn](https://github.com/aloisdeniel/cairn)). It adds Google
+> branch is `mael-fork` (there is no `main` here; upstream's is
+> [aloisdeniel/cairn](https://github.com/aloisdeniel/cairn); `google-auth`,
+> the previous main branch, stays for old links). It adds Google
 > sign-in, which replaces email/password when a Google OAuth client is
 > configured (see "Google sign-in" under [Operations](#operations)), and an
 > [MCP endpoint with OAuth 2.1](#mcp) for AI clients. Releases
@@ -10,7 +11,7 @@
 > multi-arch image as upstream:
 >
 > ```sh
-> curl -fsSL https://raw.githubusercontent.com/maelvls/cairn/google-auth/docs/install.sh | CAIRN_INSTALL_DIR="$HOME/.local/bin" sh
+> curl -fsSL https://raw.githubusercontent.com/maelvls/cairn/mael-fork/docs/install.sh | CAIRN_INSTALL_DIR="$HOME/.local/bin" sh
 > docker pull ghcr.io/maelvls/cairn:latest
 > ```
 
