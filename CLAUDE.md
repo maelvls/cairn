@@ -53,7 +53,9 @@ node internal/server/web/ui_diff_test.mjs   # ui.diffLines/ui.hunks (viewer sour
   freshness rule used by the artifact list.
 - `internal/server/handlers_comments.go` — comment threads (flat: replies
   point at the root, resolution lives on the root; `via` records web, api or
-  mcp). `notify.go` — comment notifications over ntfy: per-user topic
+  mcp; a root may carry an `anchor` {selector, quote, path} naming an element
+  of the page, stored as JSON, picked in the viewer's same-origin frame).
+  `notify.go` — comment notifications over ntfy: per-user topic
   (`users.ntfy_topic`, `/api/me/settings`), recipients from
   `store.CommentNotifyTargets`, published in a goroutine (`s.notifyWG`) so
   ntfy never fails a comment; tests use a fake ntfy via `s.httpClient`.

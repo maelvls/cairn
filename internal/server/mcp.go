@@ -41,7 +41,7 @@ const mcpInstructions = `Cairn hosts artifacts: single-page web apps (an index.h
 - Pages can use the shared database and file storage through cairn.js: <script src="./cairn.js"></script> is served inside every version.
 - "artifact" arguments take an artifact id (or a resource value associated with it); "version" defaults to the latest version.
 - db_query runs one SQL statement; db_batch runs several in one transaction (use it for CREATE TABLE migrations).
-- People review artifacts in the viewer (viewer_url) and leave comments: list_comments shows the open threads; after acting on one, reply with add_comment (resolve: true) so they know what changed.`
+- People review artifacts in the viewer (viewer_url) and leave comments: list_comments shows the open threads (a thread's anchor, when present, quotes the element of the page it is about and gives its CSS selector); after acting on one, reply with add_comment (resolve: true) so they know what changed.`
 
 type rpcMessage struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -803,7 +803,8 @@ var mcpTools = []mcpTool{
 	{
 		name: "list_comments",
 		description: "List the comment threads people left on an artifact (feedback to act on), oldest first. " +
-			"Each thread is a root comment with its replies; versionId is the version the author was looking at.",
+			"Each thread is a root comment with its replies; versionId is the version the author was looking at. " +
+			"A thread about one element of the page has an anchor: quote (the element's text), selector (CSS path) and path (the page in the version).",
 		schema: object([]string{"artifact"}, map[string]any{
 			"artifact": artifactProp,
 			"status":   map[string]any{"type": "string", "enum": []string{"open", "resolved", "all"}, "description": "Defaults to open."},
@@ -840,14 +841,24 @@ var mcpTools = []mcpTool{
 			"reply_to": str("Id of a comment of the thread to reply to. Omit to start a thread."),
 			"version":  str("Version the comment is about. Defaults to the latest version."),
 			"resolve":  map[string]any{"type": "boolean", "description": "Resolve the thread after posting (replies only)."},
+			"anchor": map[string]any{
+				"type":        "object",
+				"description": "Starts a thread about one element of the page (not for replies): a selector, a quote, or both.",
+				"properties": map[string]any{
+					"selector": str("CSS selector of the element."),
+					"quote":    str("The element's text, 300 characters max; finds it again when the selector no longer matches."),
+					"path":     str("Page inside the version, e.g. index.html. Omit for the main page."),
+				},
+			},
 		}),
 		call: func(s *Server, r *http.Request, raw json.RawMessage) (any, error) {
 			args, err := decodeArgs[struct {
-				Artifact string `json:"artifact"`
-				Body     string `json:"body"`
-				ReplyTo  string `json:"reply_to"`
-				Version  string `json:"version"`
-				Resolve  bool   `json:"resolve"`
+				Artifact string               `json:"artifact"`
+				Body     string               `json:"body"`
+				ReplyTo  string               `json:"reply_to"`
+				Version  string               `json:"version"`
+				Resolve  bool                 `json:"resolve"`
+				Anchor   *store.CommentAnchor `json:"anchor"`
 			}](raw)
 			if err != nil {
 				return nil, err
@@ -858,6 +869,9 @@ var mcpTools = []mcpTool{
 			}
 			var c store.Comment
 			req := map[string]any{"body": args.Body, "parentId": args.ReplyTo, "versionId": v.ID}
+			if args.Anchor != nil {
+				req["anchor"] = args.Anchor
+			}
 			if err := s.mcpJSON(r, "POST", "/api/artifacts/"+a.ID+"/comments", req, &c); err != nil {
 				return nil, err
 			}

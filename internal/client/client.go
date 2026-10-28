@@ -201,10 +201,15 @@ func (c *Client) ListComments(artifactID, status string) ([]*store.Comment, erro
 	return out, c.doJSON("GET", "/api/artifacts/"+artifactID+"/comments?status="+url.QueryEscape(status), nil, &out)
 }
 
-func (c *Client) AddComment(artifactID, body, parentID, versionID string) (*store.Comment, error) {
+// AddComment starts a thread (parentID empty), optionally about one element
+// of the page (anchor), or replies to one (anchor must be nil).
+func (c *Client) AddComment(artifactID, body, parentID, versionID string, anchor *store.CommentAnchor) (*store.Comment, error) {
 	var out store.Comment
-	return &out, c.doJSON("POST", "/api/artifacts/"+artifactID+"/comments",
-		map[string]string{"body": body, "parentId": parentID, "versionId": versionID}, &out)
+	req := map[string]any{"body": body, "parentId": parentID, "versionId": versionID}
+	if anchor != nil {
+		req["anchor"] = anchor
+	}
+	return &out, c.doJSON("POST", "/api/artifacts/"+artifactID+"/comments", req, &out)
 }
 
 func (c *Client) ResolveComment(artifactID, commentID string, resolved bool) (*store.Comment, error) {

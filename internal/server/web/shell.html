@@ -117,6 +117,30 @@
   .composer .row{display:flex; align-items:center; gap:.5rem}
   .composer textarea{min-height:3.6rem}
   .thread .composer{position:static; padding:.6rem; border-top:1px solid var(--line-soft)}
+  /* anchored threads: the quote of the element they are about */
+  .cquote{
+    display:flex; gap:.45rem; align-items:flex-start; width:100%; text-align:left;
+    padding:.35rem .55rem; border:0; border-left:2px solid var(--accent-dim); border-radius:0 6px 6px 0;
+    background:var(--accent-tint); color:var(--muted); font:inherit; font-size:12.5px; line-height:1.45;
+  }
+  button.cquote{cursor:pointer}
+  button.cquote:hover{color:var(--text); border-left-color:var(--accent)}
+  .cquote > svg{width:13px; height:13px; flex:none; margin-top:2px; color:var(--accent)}
+  .cquote > span{flex:1; min-width:0; overflow:hidden; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical}
+  .cquote.sel > span{font-family:var(--mono); font-size:11.5px}
+  .cquote .btn{padding:1px; margin:-1px -2px 0 0}
+  .cquote .btn svg{width:13px; height:13px}
+  /* pick mode: the artifact is outlined, a hint floats over it */
+  .frame.picking::after{content:''; position:absolute; inset:0; border:2px solid var(--accent); pointer-events:none}
+  .pickhint{
+    position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:2; display:none; align-items:center; gap:.5rem;
+    max-width:calc(100% - 20px); padding:.3rem .35rem .3rem .8rem; border-radius:999px; white-space:nowrap;
+    background:var(--bg-panel); border:1px solid var(--accent-dim); box-shadow:var(--shadow);
+    font-family:var(--mono); font-size:12px; color:var(--text);
+  }
+  .pickhint span{overflow:hidden; text-overflow:ellipsis}
+  .frame.picking .pickhint{display:flex}
+  #pickBtn[aria-pressed=true]{color:var(--accent); border-color:var(--accent-dim); background:var(--accent-tint)}
 
   /* -------------------------------------------------------------- data */
   .tables{display:grid; gap:2px}
@@ -214,6 +238,8 @@
       <iframe id="frame" src="/artifacts/{{.Artifact.ID}}/{{.Version.ID}}/" title="{{.Artifact.Name}}"
         allow="clipboard-write; fullscreen; camera; microphone; geolocation"></iframe>
       <div class="veil"><div class="spinner"></div></div>
+      <div class="pickhint" role="status"><span>Click an element to comment on it</span><kbd>Esc</kbd>
+        <button class="btn small" id="pickCancel" type="button">Cancel</button></div>
     </div>
     <aside id="panel" hidden aria-label="Artifact panel">
       <div class="tabs" role="tablist" id="tabs"></div>
@@ -230,6 +256,7 @@
   const S = {
     a: BOOT.artifact, versions: BOOT.versions, current: BOOT.version, follow: BOOT.follow,
     pinned: BOOT.pinned, dir: new Map(), comments: [], cfilter: 'open',
+    anchor: null, // {anchor, versionId}: the element the next thread is about
     tab: null, table: null, sourcePath: null,
     // Source tab: compare with 'prev' (the version before), 'none' or a
     // version id; list only the files that differ.
@@ -245,7 +272,7 @@
   // ------------------------------------------------------------ header
   const frame = document.getElementById('frame');
   const frameBox = document.getElementById('frameBox');
-  frame.addEventListener('load', () => frameBox.classList.remove('loading'));
+  frame.addEventListener('load', () => { frameBox.classList.remove('loading'); cancelPick(); });
 
   function renderHeader() {
     document.getElementById('title').textContent = titleOf(S.a);
@@ -742,12 +769,18 @@
           mine && {label: 'Edit…', icon: 'edit', fn: () => editComment(c)},
           {label: 'Delete', icon: 'trash', danger: true, fn: () => deleteComment(c)},
         ])}, icon('more')) : null),
+      c.anchor ? h('button.cquote' + (c.anchor.quote ? '' : '.sel'), {
+        title: 'Show this element' + (c.anchor.path ? ' (' + c.anchor.path + ')' : '') + (c.anchor.selector ? ': ' + c.anchor.selector : ''),
+        onclick: () => reveal(c),
+      }, icon('target'), h('span', c.anchor.quote || c.anchor.selector)) : null,
       richText(c.body));
   }
 
   function composer(parent) {
+    // Only a new thread can be about an element; replies are about the thread.
+    let pending = parent ? null : S.anchor;
     const ta = h('textarea.input', {
-      placeholder: parent ? 'Reply…' : `Comment on version #${S.current.seq}…`, rows: parent ? 2 : 3,
+      placeholder: parent ? 'Reply…' : pending ? 'Comment on this element…' : `Comment on version #${S.current.seq}…`, rows: parent ? 2 : 3,
       onkeydown: e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } },
     });
     const btn = h('button.btn.primary', {onclick: () => send()}, parent ? 'Reply' : 'Comment');
@@ -756,8 +789,10 @@
       if (!body) { ta.focus(); return; }
       btn.disabled = true;
       try {
-        const c = await post(base + '/comments', {body, parentId: parent ? parent.id : '', versionId: S.current.id});
+        const c = await post(base + '/comments', {body, parentId: parent ? parent.id : '',
+          versionId: pending ? pending.versionId : S.current.id, anchor: pending ? pending.anchor : undefined});
         S.comments.push(c);
+        if (pending && S.anchor === pending) S.anchor = null;
         if (parent) parent.resolvedAt = '';
         if (!parent && S.cfilter === 'resolved') S.cfilter = 'open';
         ta.value = '';
@@ -767,7 +802,21 @@
         refreshComments();
       } catch (e) { fail(e); btn.disabled = false; }
     }
-    return h('div.composer', ta, h('div.row', h('span.hint', h('kbd', '⌘'), ' ', h('kbd', 'Enter')), h('span.spacer'), btn));
+    if (parent) return h('div.composer', ta, h('div.row', h('span.hint', h('kbd', '⌘'), ' ', h('kbd', 'Enter')), h('span.spacer'), btn));
+    const an = pending && pending.anchor;
+    const chip = an && h('div.cquote' + (an.quote ? '' : '.sel'), {title: an.selector},
+      icon('target'), h('span', an.quote || an.selector),
+      h('button.btn.ghost', {title: 'Comment on the whole artifact instead', 'aria-label': 'Remove the element', onclick: () => {
+        S.anchor = pending = null;
+        chip.remove();
+        ta.placeholder = `Comment on version #${S.current.seq}…`;
+        ta.focus();
+      }}, icon('x')));
+    return h('div.composer', chip, ta,
+      h('div.row',
+        h('button.btn.ghost.small', {id: 'pickBtn', title: 'Pick an element of the page to comment on (Esc cancels)', 'aria-pressed': String(!!picking),
+          onclick: () => picking ? cancelPick() : startPick()}, icon('target'), 'Comment on an element'),
+        h('span.spacer'), h('span.hint', h('kbd', '⌘'), ' ', h('kbd', 'Enter')), btn));
   }
   async function resolve(root, resolved) {
     try {
@@ -788,6 +837,188 @@
       S.comments = S.comments.filter(x => x.id !== c.id && x.parentId !== c.id);
       renderTools(); renderPanel();
     } catch (e) { fail(e); }
+  }
+
+  // -------------------------------------------------- anchored comments
+  // A thread can be about one element of the page. Pick mode outlines what
+  // the pointer is over inside the (same-origin) frame; a click records a
+  // CSS path, the element's text and the page. Clicking the quote of a
+  // thread finds the element again (by selector, else by its text) and
+  // flashes it. Whatever is injected into the artifact's document (a style
+  // element, data-cairn-* attributes, capture listeners) is removed after.
+  // The server's limits, counted its way: code points, UTF-8 bytes.
+  const QUOTE_MAX = 300, SELECTOR_MAX_BYTES = 2000;
+  const utf8Len = s => new TextEncoder().encode(s).length;
+  const narrow = () => matchMedia('(max-width:900px)').matches; // the panel covers the frame
+  const squash = s => (s || '').replace(/\s+/g, ' ').trim();
+  const textOf = el => squash(el.textContent) ||
+    squash(el.getAttribute('alt') || el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('placeholder'));
+  const clip = s => Array.from(s).slice(0, QUOTE_MAX).join('').trim(); // code points, like the server
+  const samePage = (a, b) => (a || 'index.html') === (b || 'index.html');
+  let picking = null;
+
+  function frameDoc() {
+    try { const d = frame.contentDocument; return d && d.body ? d : null; } catch { return null; }
+  }
+  // The page the frame shows, relative to its version ('' for the main page).
+  function framePath() {
+    try {
+      const m = /^\/artifacts\/[^/]+\/[^/]+\/(.*)$/.exec(frame.contentWindow.location.pathname);
+      return m ? decodeURIComponent(m[1]) : '';
+    } catch { return ''; }
+  }
+  // cssPath is the shortest child path from the closest unique id (or body).
+  function cssPath(el) {
+    const doc = el.ownerDocument, parts = [];
+    for (let e = el; e && e !== doc.documentElement; e = e.parentElement) {
+      if (e === doc.body) { parts.unshift('body'); break; }
+      if (e.id && doc.querySelectorAll('#' + CSS.escape(e.id)).length === 1) { parts.unshift('#' + CSS.escape(e.id)); break; }
+      const same = e.parentElement ? [...e.parentElement.children].filter(x => x.localName === e.localName) : [e];
+      parts.unshift(same.length > 1 ? `${CSS.escape(e.localName)}:nth-of-type(${same.indexOf(e) + 1})` : CSS.escape(e.localName));
+    }
+    return parts.join(' > ');
+  }
+  function findAnchored(doc, an) {
+    let el = null;
+    if (an.selector) try { el = doc.querySelector(an.selector); } catch {}
+    if (!an.quote || (el && textOf(el).startsWith(an.quote))) return el;
+    // The page changed under the selector: the smallest (then deepest)
+    // element whose text starts with the quote. Only subtrees whose text
+    // contains the quote can hold it, so the walk descends into those only.
+    let best = null, len = Infinity;
+    const walk = e => {
+      for (const child of e.children) {
+        if (/^(script|style|template|noscript)$/.test(child.localName)) continue;
+        const t = textOf(child);
+        if (!t.includes(an.quote)) continue;
+        if (t.length <= len && t.startsWith(an.quote)) { best = child; len = t.length; }
+        walk(child);
+      }
+    };
+    walk(doc.body);
+    return best || el;
+  }
+
+  function startPick() {
+    const doc = frameDoc();
+    if (!doc) { fail('The page is not loaded yet'); return; }
+    cancelPick();
+    const win = doc.defaultView;
+    const style = doc.createElement('style');
+    style.textContent = '[data-cairn-pick]{outline:2px solid #C6F135!important; outline-offset:2px!important; box-shadow:0 0 0 2px #0B0E13!important}' +
+      'html[data-cairn-picking], html[data-cairn-picking] *{cursor:crosshair!important}';
+    (doc.head || doc.documentElement).append(style);
+    doc.documentElement.setAttribute('data-cairn-picking', '');
+    let hover = null;
+    const mark = el => {
+      if (hover) hover.removeAttribute('data-cairn-pick');
+      hover = el;
+      if (el) el.setAttribute('data-cairn-pick', '');
+    };
+    const target = e => e.target && e.target.nodeType === 1 ? (e.target === doc.documentElement ? doc.body : e.target) : null;
+    // The artifact sees none of the pointer events of pick mode.
+    const block = e => { e.preventDefault(); e.stopImmediatePropagation(); };
+    const handlers = {
+      mouseover: e => mark(target(e)),
+      mouseout: e => { if (!e.relatedTarget) mark(null); },
+      click: e => { block(e); const el = target(e); if (el) picked(el); },
+      keydown: e => { if (e.key === 'Escape') { block(e); cancelPick(); } },
+    };
+    for (const t of ['mousedown', 'mouseup', 'pointerdown', 'pointerup', 'dblclick', 'auxclick', 'submit']) handlers[t] = block;
+    for (const [t, fn] of Object.entries(handlers)) win.addEventListener(t, fn, true);
+    picking = {doc, win, style, handlers, mark, reopen: narrow() ? S.tab : null};
+    if (picking.reopen) openPanel(null);
+    frameBox.classList.add('picking');
+    pickButton(true);
+  }
+  // The composer's button shows the mode; re-rendering would drop a draft.
+  function pickButton(on) {
+    const b = document.getElementById('pickBtn');
+    if (b) b.setAttribute('aria-pressed', String(on));
+  }
+  // stopPick leaves pick mode and cleans the artifact's document.
+  function stopPick() {
+    const p = picking;
+    if (!p) return null;
+    picking = null;
+    try {
+      p.mark(null);
+      for (const [t, fn] of Object.entries(p.handlers)) p.win.removeEventListener(t, fn, true);
+      p.style.remove();
+      p.doc.documentElement.removeAttribute('data-cairn-picking');
+    } catch {} // the frame navigated away: nothing is left to clean
+    frameBox.classList.remove('picking');
+    pickButton(false);
+    return p;
+  }
+  function cancelPick() {
+    const p = stopPick();
+    if (p && p.reopen) openPanel(p.reopen);
+  }
+  document.getElementById('pickCancel').addEventListener('click', cancelPick);
+
+  function picked(el) {
+    stopPick();
+    let selector = cssPath(el);
+    if (utf8Len(selector) > SELECTOR_MAX_BYTES) selector = ''; // the quote alone finds it
+    const quote = clip(textOf(el));
+    if (!selector && !quote) { fail('Nothing to point at there: pick an element with text'); return; }
+    S.anchor = {versionId: S.current.id, anchor: {selector, quote, path: framePath() || 'index.html'}};
+    const old = document.querySelector('#pane > .composer');
+    const draft = old ? old.querySelector('textarea').value : '';
+    if (S.tab === 'comments' && old && S.cfilter !== 'resolved') {
+      old.replaceWith(composer(null)); // keeps drafts in the threads' reply boxes
+    } else {
+      if (S.cfilter === 'resolved') S.cfilter = 'open';
+      openPanel('comments');
+    }
+    const ta = document.querySelector('#pane > .composer textarea');
+    if (ta) { ta.value = draft; ta.focus(); }
+  }
+
+  let revealing = 0; // the latest reveal; an older one waiting on a page load gives up
+  async function reveal(c) {
+    const an = c.anchor, seq = ++revealing;
+    if (narrow()) openPanel(null);
+    let doc = frameDoc(), el = null;
+    if (doc && (!an.path || samePage(an.path, framePath()))) el = findAnchored(doc, an);
+    else if (an.path && !an.path.split('/').some(s => s === '..' || s === '.')) {
+      // Another page of the version: load it, then give its scripts a
+      // moment to render.
+      frameBox.classList.add('loading');
+      await new Promise(done => {
+        frame.addEventListener('load', done, {once: true});
+        frame.src = fullURL(S.current) + an.path.split('/').map(encodeURIComponent).join('/');
+      });
+      for (let i = 0; i < 12 && !el; i++) {
+        if (i) await new Promise(r => setTimeout(r, 150));
+        if (seq !== revealing) return;
+        if ((doc = frameDoc())) el = findAnchored(doc, an);
+      }
+    }
+    if (seq !== revealing) return;
+    if (el) { flash(el); return; }
+    const v = S.versions.find(x => x.id === c.versionId);
+    toast(`This element is not on version #${S.current.seq}`, v && v.id !== S.current.id
+      ? {action: {label: `View #${v.seq}`, fn: () => go(v === latest() ? null : v)}} : undefined);
+  }
+  let unflash = null;
+  function flash(el) {
+    if (unflash) unflash();
+    const doc = el.ownerDocument;
+    const style = doc.createElement('style');
+    style.textContent = '@keyframes cairn-flash{0%,100%{outline:2px solid transparent; box-shadow:none}' +
+      '15%,30%,55%,70%{outline:2px solid #C6F135; box-shadow:0 0 0 2px #0B0E13}42%{outline:2px solid transparent; box-shadow:none}}' +
+      '[data-cairn-flash]{outline-offset:2px!important; animation:cairn-flash 1.8s ease-in-out!important}';
+    (doc.head || doc.documentElement).append(style);
+    el.setAttribute('data-cairn-flash', '');
+    el.scrollIntoView({block: 'center', behavior: 'smooth'});
+    const t = setTimeout(() => unflash(), 2000);
+    unflash = () => {
+      clearTimeout(t);
+      try { el.removeAttribute('data-cairn-flash'); style.remove(); } catch {}
+      unflash = null;
+    };
   }
 
   // -------------------------------------------------------------- data
@@ -1059,6 +1290,7 @@
 
   // -------------------------------------------------------------- boot
   addEventListener('keydown', e => {
+    if (e.key === 'Escape' && picking) { e.preventDefault(); cancelPick(); return; }
     if (e.target.closest('input, textarea, select, dialog') || e.metaKey || e.ctrlKey || e.altKey) return;
     const keys = {i: 'info', c: 'comments', d: 'data', s: 'source'};
     if (keys[e.key]) togglePanel(keys[e.key]);

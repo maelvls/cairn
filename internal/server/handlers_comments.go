@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -55,10 +56,50 @@ func (s *Server) handleListComments(w http.ResponseWriter, r *http.Request) {
 }
 
 type commentRequest struct {
-	Body      *string `json:"body"`
-	ParentID  string  `json:"parentId"`
-	VersionID string  `json:"versionId"`
-	Resolved  *bool   `json:"resolved"`
+	Body      *string              `json:"body"`
+	ParentID  string               `json:"parentId"`
+	VersionID string               `json:"versionId"`
+	Anchor    *store.CommentAnchor `json:"anchor"`
+	Resolved  *bool                `json:"resolved"`
+}
+
+// Anchors stay small: they are shown with every thread and listed to agents.
+const (
+	maxAnchorQuoteRunes    = 300
+	maxAnchorSelectorBytes = 2000
+	maxAnchorPathBytes     = 1024
+)
+
+// validAnchor normalizes a thread's anchor (nil stays nil): whitespace in
+// the quote collapses, the page path loses its leading slash and defaults to
+// index.html (the main page).
+func validAnchor(a *store.CommentAnchor) (*store.CommentAnchor, string) {
+	if a == nil {
+		return nil, ""
+	}
+	n := &store.CommentAnchor{
+		Selector: strings.TrimSpace(a.Selector),
+		Quote:    strings.Join(strings.Fields(a.Quote), " "),
+		Path:     strings.TrimLeft(strings.TrimSpace(a.Path), "/"),
+	}
+	if n.Path == "" {
+		n.Path = "index.html"
+	}
+	switch {
+	case n.Selector == "" && n.Quote == "":
+		return nil, "anchor needs a selector or a quote"
+	case len(n.Selector) > maxAnchorSelectorBytes:
+		return nil, "anchor selector is too long"
+	case utf8.RuneCountInString(n.Quote) > maxAnchorQuoteRunes:
+		return nil, "anchor quote is too long (300 characters max)"
+	case len(n.Path) > maxAnchorPathBytes:
+		return nil, "anchor path is too long"
+	case !fs.ValidPath(strings.TrimSuffix(n.Path, "/")) || strings.Contains(n.Path, `\`):
+		// The viewer loads the page in its frame: it must stay inside the
+		// version ("about/" is fine, "../" is not).
+		return nil, "anchor path must be a page of the version, like index.html"
+	}
+	return n, ""
 }
 
 func validCommentBody(body *string) (string, string) {
@@ -82,7 +123,17 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, msg)
 		return
 	}
-	c := &store.Comment{ArtifactID: a.ID, UserID: u.ID, Via: requestVia(r), Body: body}
+	anchor, msg := validAnchor(req.Anchor)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	if anchor != nil && req.ParentID != "" {
+		// The thread is about the element; its replies are about the thread.
+		writeError(w, http.StatusBadRequest, "only a thread's first comment can have an anchor, not a reply")
+		return
+	}
+	c := &store.Comment{ArtifactID: a.ID, UserID: u.ID, Via: requestVia(r), Body: body, Anchor: anchor}
 	if req.ParentID != "" {
 		parent, err := s.store.CommentByID(a.ID, req.ParentID)
 		if err != nil {
