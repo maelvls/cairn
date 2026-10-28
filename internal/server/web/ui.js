@@ -268,6 +268,107 @@
     });
   }
 
+  // ------------------------------------------------------------ diffs
+  // The viewer's Source tab compares two versions of a file. Tested by
+  // ui_diff_test.mjs (node), which loads this file with a fake window.
+
+  // splitLines('a\nb\n') → ['a', 'b']: one final newline ends the last line
+  // rather than starting an empty one.
+  const splitLines = text => text === '' ? [] : text.replace(/\n$/, '').split('\n');
+
+  // diffLines(a, b) → [{op, a, b, text}], a line-based diff of two texts (or
+  // arrays of lines): op is ' ' (in both), '-' (only in a) or '+' (only in
+  // b); a and b are 1-based line numbers, null on the side missing the line.
+  // Myers' O(ND) algorithm on what is left once the common head and tail are
+  // trimmed. Returns null when the texts are too different to be worth it:
+  // more than maxLines lines left, or more than maxEdits insertions and
+  // deletions (memory grows with maxEdits²).
+  function diffLines(a, b, {maxLines = 20000, maxEdits = 1000} = {}) {
+    if (typeof a === 'string') a = splitLines(a);
+    if (typeof b === 'string') b = splitLines(b);
+    let pre = 0, suf = 0;
+    while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre++;
+    while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf++;
+    const A = a.slice(pre, a.length - suf), B = b.slice(pre, b.length - suf);
+    const N = A.length, M = B.length;
+    if (N + M > maxLines) return null;
+
+    // V[off + k] is the furthest x reached on diagonal k = x - y; trace[d]
+    // keeps V as it was before step d, for diagonals -d-1..d+1.
+    const max = Math.min(N + M, maxEdits), off = max + 1;
+    const V = new Int32Array(2 * max + 3);
+    const trace = [];
+    let D = -1;
+    search: for (let d = 0; d <= max; d++) {
+      trace.push(V.slice(off - d - 1, off + d + 2));
+      for (let k = -d; k <= d; k += 2) {
+        let x = k === -d || (k !== d && V[off + k - 1] < V[off + k + 1]) ? V[off + k + 1] : V[off + k - 1] + 1;
+        let y = x - k;
+        while (x < N && y < M && A[x] === B[y]) { x++; y++; }
+        V[off + k] = x;
+        if (x >= N && y >= M) { D = d; break search; }
+      }
+    }
+    if (D < 0) return null;
+
+    // Walk back from (N, M): each step is a snake of equal lines preceded by
+    // one insertion (down) or deletion (right).
+    const rev = [];
+    let x = N, y = M;
+    for (let d = D; d > 0; d--) {
+      const v = trace[d], o = d + 1, k = x - y;
+      const pk = k === -d || (k !== d && v[o + k - 1] < v[o + k + 1]) ? k + 1 : k - 1;
+      const px = v[o + pk], py = px - pk;
+      while (x > px && y > py) rev.push([' ', --x, --y]);
+      if (x === px) rev.push(['+', -1, --y]); else rev.push(['-', --x, -1]);
+    }
+    while (x > 0 && y > 0) rev.push([' ', --x, --y]);
+
+    const ops = [];
+    for (let i = 0; i < pre; i++) ops.push({op: ' ', a: i + 1, b: i + 1, text: a[i]});
+    for (let i = rev.length - 1; i >= 0; i--) {
+      const [op, ai, bi] = rev[i];
+      ops.push({op, a: ai < 0 ? null : pre + ai + 1, b: bi < 0 ? null : pre + bi + 1, text: ai < 0 ? B[bi] : A[ai]});
+    }
+    for (let i = suf; i > 0; i--) ops.push({op: ' ', a: a.length - i + 1, b: b.length - i + 1, text: a[a.length - i]});
+    return ops;
+  }
+
+  // hunks(ops, context) groups diffLines' changes with `context` unchanged
+  // lines around them, like `diff -u`: [{start, end, header, oldStart,
+  // oldLines, newStart, newLines}] where ops.slice(start, end) are the
+  // hunk's lines; what lies between hunks is unchanged. Empty when equal.
+  function hunks(ops, context = 3) {
+    const out = [];
+    let i = 0;
+    while (i < ops.length) {
+      if (ops[i].op === ' ') { i++; continue; }
+      const start = Math.max(0, i - context);
+      // Extend over changes separated by at most 2×context unchanged lines.
+      let last = i;
+      for (let j = i + 1; j < ops.length && j <= last + 2 * context + 1; j++) {
+        if (ops[j].op !== ' ') last = j;
+      }
+      const end = Math.min(ops.length, last + 1 + context);
+      const lines = ops.slice(start, end);
+      const oldLines = lines.filter(o => o.op !== '+').length;
+      const newLines = lines.filter(o => o.op !== '-').length;
+      // A side with no lines starts at the line before, as diff -u writes it.
+      const before = (side, n) => {
+        for (let j = start - 1; j >= 0; j--) if (ops[j][side] != null) return ops[j][side];
+        return 0;
+      };
+      const first = side => lines.find(o => o[side] != null)?.[side];
+      const oldStart = oldLines ? first('a') : before('a');
+      const newStart = newLines ? first('b') : before('b');
+      out.push({start, end, oldStart, oldLines, newStart, newLines,
+        header: `@@ -${oldStart},${oldLines} +${newStart},${newLines} @@`});
+      i = end;
+    }
+    return out;
+  }
+
   window.ui = {h, append, $, icon, api, get: p => api(p), post: json('POST'), patch: json('PATCH'), put: json('PUT'), del: p => api(p, {method: 'DELETE'}),
-    toast, fail, menu, closeMenu, ask, ago, fullDate, bytes, hue, avatar, copy, users, userLabel, publish, publishable, onDrop, HTTPError};
+    toast, fail, menu, closeMenu, ask, ago, fullDate, bytes, hue, avatar, copy, users, userLabel, publish, publishable, onDrop, HTTPError,
+    splitLines, diffLines, hunks};
 })();

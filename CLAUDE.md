@@ -10,6 +10,7 @@ go build ./cmd/cairn     # build the binary
 go test ./...            # unit + integration tests (httptest, temp dirs)
 ./scripts/e2e.sh         # end-to-end smoke test against a real server
 gofmt -l . && go vet ./...
+node internal/server/web/ui_diff_test.mjs   # ui.diffLines/ui.hunks (viewer source diff)
 ```
 
 ## Map
@@ -40,7 +41,8 @@ gofmt -l . && go vet ./...
   toolbar + side panel with details/versions, comments, data, source; polls
   versions to follow new pushes), `admin.html` (users and API keys),
   `ui.css`/`ui.js` (shared chrome and helpers, served at `/_ui/`; vanilla JS,
-  no build step, templates pass state as `{{.Boot}}`), `cairn.js` (client
+  no build step, templates pass state as `{{.Boot}}`; `ui.diffLines` and
+  `ui.hunks` are the Source tab's version diff, tested with node), `cairn.js` (client
   lib; falls back to sql.js-in-browser with user `{id: 0, name: "Debug"}`
   when not served by Cairn).
 - `internal/server/handlers_comments.go` — comment threads (flat: replies

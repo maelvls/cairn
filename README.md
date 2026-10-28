@@ -135,7 +135,11 @@ picker, copy link, full screen) and a side panel:
   `cairn comments`), and their comments are marked as such.
 - **Data** (`d`): the version's tables with row counts, a table browser, a
   SQL console, the database download and the file storage.
-- **Source** (`s`): the version's published files.
+- **Source** (`s`): the version's published files. "Compare with" picks
+  another version (by default the one before): files are marked added (+),
+  removed (−) or changed (~), with a summary and an "only changed files"
+  filter, and a changed text file opens as a unified diff (3 lines of
+  context, old and new line numbers; binaries compare by size).
 
 Without a version in the URL the viewer follows the latest one: when an agent
 pushes a new version, or overwrites the current one, the page reloads by
