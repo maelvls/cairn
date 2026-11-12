@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/_ui/ui.css">
+<script>(()=>{try{const t=localStorage.getItem('cairnTheme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <style>
   main{max-width:84rem; margin:0 auto; padding:1.8rem clamp(16px,3vw,28px) 5rem}
   .head{display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.1rem}
@@ -130,6 +131,9 @@
       <input class="input" id="q" type="search" placeholder="Search artifacts" autocomplete="off">
       <kbd>/</kbd>
     </label>
+    <button class="btn ghost icon theme-toggle" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">
+      <span class="ico-sun" aria-hidden="true">☀</span><span class="ico-moon" aria-hidden="true">☾</span>
+    </button>
     <button class="who" id="who" title="{{.User.Email}}" aria-haspopup="menu">{{if .User.Name}}{{.User.Name}}{{else}}{{.User.Email}}{{end}}</button>
     <a class="btn ghost small" id="signout" href="/logout">sign out</a>
   </header>
@@ -531,6 +535,15 @@
     else if (Date.now() - hiddenAt > 30000) load();
   });
   load();
+
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const root = document.documentElement;
+    const cur = root.getAttribute('data-theme');
+    const sysLight = matchMedia('(prefers-color-scheme: light)').matches;
+    const next = cur ? (cur === 'light' ? 'dark' : 'light') : (sysLight ? 'dark' : 'light');
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('cairnTheme', next); } catch (e) {}
+  });
 })();
 </script>
 </body>

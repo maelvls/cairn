@@ -9,6 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/_ui/ui.css">
+<script>(()=>{try{const t=localStorage.getItem('cairnTheme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <style>
   /* minmax(0,1fr): the column never grows to the toolbar's min-content
      width, which pushed the panel off phone screens */
@@ -240,6 +241,9 @@
     <span class="spacer"></span>
     <label class="sr-only" for="version">Version</label>
     <select class="input" id="version"></select>
+    <button class="btn ghost icon theme-toggle" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">
+      <span class="ico-sun" aria-hidden="true">☀</span><span class="ico-moon" aria-hidden="true">☾</span>
+    </button>
     <div class="tools" id="tools"></div>
   </header>
   <div class="banner" id="banner" hidden></div>
@@ -1334,6 +1338,15 @@
     if (location.hash.length > 1) openFromHash();
     else if (saved) openPanel(saved);
   })();
+
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    const root = document.documentElement;
+    const cur = root.getAttribute('data-theme');
+    const sysLight = matchMedia('(prefers-color-scheme: light)').matches;
+    const next = cur ? (cur === 'light' ? 'dark' : 'light') : (sysLight ? 'dark' : 'light');
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('cairnTheme', next); } catch (e) {}
+  });
 })();
 </script>
 </body>

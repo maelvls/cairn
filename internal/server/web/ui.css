@@ -20,6 +20,12 @@
   --danger-dim:rgba(224,138,124,.55);
   --danger-tint:rgba(224,138,124,.08);
   --warn:#E8C26A;
+  --warn-tint:rgba(232,194,106,.07);
+  --warn-dim:rgba(232,194,106,.2);
+  --topbar-bg:rgba(11,14,19,.82);
+  --dropzone-bg:rgb(11 14 19 / .86);
+  --dialog-backdrop:rgb(5 7 10 / .7);
+  --frame-veil:rgb(11 14 19 / .35);
   --radius:10px;
   --shadow:0 .75rem 2.5rem rgb(0 0 0 / .55);
   /* generic fallbacks matter: this page is served by a self-hosted binary
@@ -27,6 +33,64 @@
   --sans:"Familjen Grotesk",-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;
   --mono:"Fragment Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
   color-scheme:dark;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    --bg:#FBFAF7;
+    --bg-raise:#FFFFFF;
+    --bg-panel:#F5F4F0;
+    --bg-hover:#EDECE7;
+    --line:rgba(20,24,33,.12);
+    --line-soft:rgba(20,24,33,.06);
+    --line-strong:rgba(20,24,33,.24);
+    --text:#10141C;
+    --muted:#4A5464;
+    --faint:#8C96A8;
+    --accent:#6D8F15;
+    --accent-ink:#FFFFFF;
+    --accent-dim:rgba(109,143,21,.55);
+    --accent-tint:rgba(109,143,21,.1);
+    --danger:#B64A3A;
+    --danger-dim:rgba(182,74,58,.55);
+    --danger-tint:rgba(182,74,58,.08);
+    --warn:#8A6A10;
+    --warn-tint:rgba(138,106,16,.08);
+    --warn-dim:rgba(138,106,16,.3);
+    --topbar-bg:rgba(251,250,247,.82);
+    --dropzone-bg:rgb(20 24 33 / .22);
+    --dialog-backdrop:rgb(20 24 33 / .35);
+    --frame-veil:rgb(20 24 33 / .18);
+    --shadow:0 .75rem 2.5rem rgb(20 24 33 / .14);
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#FBFAF7;
+  --bg-raise:#FFFFFF;
+  --bg-panel:#F5F4F0;
+  --bg-hover:#EDECE7;
+  --line:rgba(20,24,33,.12);
+  --line-soft:rgba(20,24,33,.06);
+  --line-strong:rgba(20,24,33,.24);
+  --text:#10141C;
+  --muted:#4A5464;
+  --faint:#8C96A8;
+  --accent:#6D8F15;
+  --accent-ink:#FFFFFF;
+  --accent-dim:rgba(109,143,21,.55);
+  --accent-tint:rgba(109,143,21,.1);
+  --danger:#B64A3A;
+  --danger-dim:rgba(182,74,58,.55);
+  --danger-tint:rgba(182,74,58,.08);
+  --warn:#8A6A10;
+  --warn-tint:rgba(138,106,16,.08);
+  --warn-dim:rgba(138,106,16,.3);
+  --topbar-bg:rgba(251,250,247,.82);
+  --dropzone-bg:rgb(20 24 33 / .22);
+  --dialog-backdrop:rgb(20 24 33 / .35);
+  --frame-veil:rgb(20 24 33 / .18);
+  --shadow:0 .75rem 2.5rem rgb(20 24 33 / .14);
+  color-scheme:light;
 }
 *{box-sizing:border-box; margin:0; padding:0}
 html,body{overflow-x:clip}
@@ -48,7 +112,7 @@ button{font:inherit; color:inherit}
 .topbar{
   display:flex; align-items:center; gap:.5rem .9rem; min-height:52px;
   padding:.45rem clamp(12px,3vw,24px);
-  background:rgba(11,14,19,.82);
+  background:var(--topbar-bg);
   backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
   border-bottom:1px solid var(--line);
   position:sticky; top:0; z-index:20;
@@ -166,7 +230,7 @@ dialog{
   background:var(--bg-raise); color:var(--text);
   border:1px solid var(--line-strong); border-radius:12px; box-shadow:var(--shadow);
 }
-dialog::backdrop{background:rgb(5 7 10 / .7); backdrop-filter:blur(2px)}
+dialog::backdrop{background:var(--dialog-backdrop); backdrop-filter:blur(2px)}
 dialog form{display:grid; gap:1rem; padding:1.3rem}
 dialog h2{font-size:18px; font-weight:600}
 dialog p{color:var(--muted); font-size:13.5px}
@@ -203,7 +267,7 @@ dialog .row{display:flex; gap:.5rem; justify-content:flex-end; flex-wrap:wrap}
 /* drop overlay, shared by gallery and viewer */
 .dropzone{
   position:fixed; inset:0; z-index:40; display:grid; place-items:center;
-  background:rgb(11 14 19 / .86); backdrop-filter:blur(3px);
+  background:var(--dropzone-bg); backdrop-filter:blur(3px);
   pointer-events:none;
 }
 .dropzone div{
@@ -211,6 +275,18 @@ dialog .row{display:flex; gap:.5rem; justify-content:flex-end; flex-wrap:wrap}
   text-align:center; color:var(--text); font-size:17px; max-width:min(32rem,calc(100vw - 32px));
 }
 .dropzone small{display:block; margin-top:.4rem; font-family:var(--mono); font-size:12px; color:var(--muted)}
+
+/* ------------------------------------------------------- theme toggle */
+.theme-toggle .ico-moon{display:none}
+.theme-toggle .ico-sun{display:inline}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]) .theme-toggle .ico-sun{display:none}
+  :root:not([data-theme="dark"]) .theme-toggle .ico-moon{display:inline}
+}
+:root[data-theme="light"] .theme-toggle .ico-sun{display:none}
+:root[data-theme="light"] .theme-toggle .ico-moon{display:inline}
+:root[data-theme="dark"] .theme-toggle .ico-sun{display:inline}
+:root[data-theme="dark"] .theme-toggle .ico-moon{display:none}
 
 @media (prefers-reduced-motion:reduce){
   *{animation:none !important; transition:none !important}
