@@ -113,6 +113,12 @@ type Server struct {
 
 	notifyWG sync.WaitGroup // background comment notifications (notify.go)
 
+	// bus fans out server-side events (today: new comments) to long-lived
+	// listeners: the SSE endpoint (handlers_comments_stream.go) and the MCP
+	// events deliverer (webhooks.go).
+	bus      *EventBus
+	webhooks *webhookDeliverer
+
 	// Anthropic Messages endpoint (overridable by tests), its client and the
 	// per-user daily quota.
 	anthropicURL string
@@ -157,6 +163,8 @@ func New(cfg Config) (*Server, error) {
 		anthropicURL: strings.TrimRight(cfg.AnthropicBaseURL, "/") + "/v1/messages",
 		aiClient:     &http.Client{}, // per-call deadline: aiCallTimeout
 	}
+	s.bus = NewEventBus()
+	s.webhooks = newWebhookDeliverer(s)
 	if u, err := url.Parse(cfg.BaseURL); err == nil && u.Scheme == "https" {
 		s.secure = true
 	}
@@ -165,6 +173,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s.routes()
+	s.webhooks.start()
 	return s, nil
 }
 
@@ -236,6 +245,7 @@ func (s *Server) Run(ctx context.Context) error {
 		// (within notifyTimeout).
 		s.notifyWG.Wait()
 	}
+	s.webhooks.stop()
 	s.dbs.Close()
 	s.store.Close()
 	return err

@@ -124,9 +124,12 @@ func (s *Server) mcpDispatch(r *http.Request, m rpcMessage) *rpcResponse {
 		}
 		resp.Result = map[string]any{
 			"protocolVersion": version,
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "cairn", "title": "Cairn", "version": "1"},
-			"instructions":    mcpInstructions,
+			"capabilities": map[string]any{
+				"tools":  map[string]any{"listChanged": false},
+				"events": map[string]any{},
+			},
+			"serverInfo":   map[string]any{"name": "cairn", "title": "Cairn", "version": "1"},
+			"instructions": mcpInstructions,
 		}
 	case "ping":
 		resp.Result = map[string]any{}
@@ -141,6 +144,34 @@ func (s *Server) mcpDispatch(r *http.Request, m rpcMessage) *rpcResponse {
 			})
 		}
 		resp.Result = map[string]any{"tools": tools}
+	case "events/list":
+		out, err := s.mcpEventsList(m.Params)
+		if err != nil {
+			resp.Error = &rpcError{-32603, err.Error()}
+			return resp
+		}
+		resp.Result = out
+	case "events/subscribe":
+		out, rpcErr := s.mcpEventsSubscribe(r, m.Params)
+		if rpcErr != nil {
+			resp.Error = rpcErr
+			return resp
+		}
+		resp.Result = out
+	case "events/unsubscribe":
+		out, rpcErr := s.mcpEventsUnsubscribe(r, m.Params)
+		if rpcErr != nil {
+			resp.Error = rpcErr
+			return resp
+		}
+		resp.Result = out
+	case "events/list_subscriptions":
+		out, rpcErr := s.mcpEventsListSubscriptions(r)
+		if rpcErr != nil {
+			resp.Error = rpcErr
+			return resp
+		}
+		resp.Result = out
 	case "tools/call":
 		var p struct {
 			Name      string          `json:"name"`

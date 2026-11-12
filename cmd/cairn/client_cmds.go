@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -550,6 +552,7 @@ func countThreads(cs []*store.Comment) int {
 
 func runComments(args []string) error {
 	const usage = `usage: cairn comments list <artifact> [--all|--resolved] [--json]
+       cairn comments watch <artifact> [--json] [--last-event-id <id>]
        cairn comments add <artifact> "<text>" [--reply <comment-id>] [--resolve]
                           [--selector <css>] [--quote <text>] [--page <path>]
        cairn comments resolve <artifact> <comment-id> [--reopen]`
@@ -559,6 +562,8 @@ func runComments(args []string) error {
 	switch args[0] {
 	case "list", "ls":
 		return commentsList(args[1:])
+	case "watch":
+		return commentsWatch(args[1:])
 	case "add", "reply":
 		return commentsAdd(args[1:])
 	case "resolve":
@@ -737,6 +742,137 @@ func commentsAdd(args []string) error {
 	}
 	fmt.Printf("commented on %s (%s)\n", a.Name, cm.ID)
 	return nil
+}
+
+// commentsWatch streams the comments SSE endpoint, printing each new
+// comment as it arrives. It reconnects with exponential backoff (capped)
+// on network errors, resumes with the last id seen so a reconnect does not
+// repeat events it already printed, and exits cleanly on SIGINT.
+func commentsWatch(args []string) error {
+	fs := flag.NewFlagSet("comments watch", flag.ExitOnError)
+	jsonOut := fs.Bool("json", false, "emit one JSON event per line")
+	lastID := fs.String("last-event-id", "", "resume after this event id (default: start of the stream)")
+	pos, err := positionals(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 1 {
+		return errors.New("usage: cairn comments watch <artifact> [--json] [--last-event-id <id>]")
+	}
+	c, err := apiClient()
+	if err != nil {
+		return err
+	}
+	a, err := c.ResolveArtifact(pos[0])
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	if !*jsonOut {
+		fmt.Fprintf(os.Stderr, "watching %s (%s)\n", a.Name, a.ID)
+	}
+
+	backoff := time.Second
+	const backoffMax = 30 * time.Second
+	cur := *lastID
+	for ctx.Err() == nil {
+		n, err := streamComments(ctx, c, a.ID, cur, *jsonOut)
+		if err == nil || ctx.Err() != nil {
+			// Server closed cleanly or we stopped: no backoff, try again.
+			backoff = time.Second
+		} else {
+			fmt.Fprintf(os.Stderr, "watch: %v (retry in %s)\n", err, backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+			}
+			if backoff < backoffMax {
+				backoff *= 2
+				if backoff > backoffMax {
+					backoff = backoffMax
+				}
+			}
+		}
+		if n != "" {
+			cur = n
+		}
+	}
+	return nil
+}
+
+// streamComments opens one SSE connection and prints events until it ends,
+// returning the last event id seen so the caller can resume there.
+func streamComments(ctx context.Context, c *client.Client, artifactID, lastEventID string, jsonOut bool) (string, error) {
+	resp, err := c.WatchComments(artifactID, lastEventID)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	// Cancel the body read when ctx is cancelled (Ctrl-C).
+	go func() {
+		<-ctx.Done()
+		resp.Body.Close()
+	}()
+	r := client.NewSSEReader(resp.Body)
+	lastID := lastEventID
+	for {
+		e, err := r.Next()
+		if err != nil {
+			if ctx.Err() != nil || err == io.EOF {
+				return lastID, nil
+			}
+			return lastID, err
+		}
+		if e.Data == "" {
+			continue
+		}
+		ce, err := e.AsCommentEvent()
+		if err != nil {
+			continue
+		}
+		if ce.ID != "" {
+			lastID = ce.ID
+		}
+		if jsonOut {
+			fmt.Println(e.Data)
+			continue
+		}
+		printCommentEvent(ce)
+	}
+}
+
+func printCommentEvent(e *client.CommentEvent) {
+	cm, _ := e.Comment()
+	if cm == nil {
+		return
+	}
+	at := e.OccurredAt
+	if i := strings.Index(at, "T"); i >= 0 && len(at) >= i+6 {
+		at = at[:i] + " " + at[i+1:i+6]
+	}
+	who := cm.Author
+	if cm.Via == "mcp" {
+		who += " (agent)"
+	}
+	switch e.Name {
+	case "comment.created":
+		if cm.ParentID != "" {
+			fmt.Printf("%s  %s replied [%s]:\n  %s\n", at, who, cm.ID, strings.ReplaceAll(cm.Body, "\n", "\n  "))
+		} else {
+			fmt.Printf("%s  %s commented [%s]:\n  %s\n", at, who, cm.ID, strings.ReplaceAll(cm.Body, "\n", "\n  "))
+		}
+	case "comment.resolved":
+		fmt.Printf("%s  %s resolved [%s]\n", at, who, cm.ID)
+	case "comment.reopened":
+		fmt.Printf("%s  %s reopened [%s]\n", at, who, cm.ID)
+	case "comment.updated":
+		fmt.Printf("%s  %s edited [%s]:\n  %s\n", at, who, cm.ID, strings.ReplaceAll(cm.Body, "\n", "\n  "))
+	default:
+		fmt.Printf("%s  %s [%s]\n", at, e.Name, cm.ID)
+	}
 }
 
 func commentsResolve(args []string) error {
