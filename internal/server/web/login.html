@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
+<script>(()=>{try{const t=localStorage.getItem('cairnTheme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <style>
   :root{
     --bg:#0B0E13;
@@ -21,11 +22,50 @@
     --accent:#C6F135;
     --accent-dim:rgba(198,241,53,.55);
     --accent-tint:rgba(198,241,53,.08);
+    --on-accent:#0B0E13;
+    --glow:rgba(198,241,53,.05);
     --danger:#E08A7C;
     /* generic fallbacks matter: this page is served by a self-hosted binary
        that may run with no internet access to Google Fonts */
     --sans:"Familjen Grotesk",-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;
     --mono:"Fragment Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  @media (prefers-color-scheme:light){
+    :root:not([data-theme="dark"]){
+      --bg:#FBFAF7;
+      --bg-raise:#F0EFEA;
+      --bg-panel:#FFFFFF;
+      --line:rgba(20,24,33,.12);
+      --line-soft:rgba(20,24,33,.06);
+      --text:#10141C;
+      --muted:#4A5464;
+      --faint:#8C96A8;
+      --accent:#6D8F15;
+      --accent-dim:rgba(109,143,21,.55);
+      --accent-tint:rgba(109,143,21,.1);
+      --on-accent:#FFFFFF;
+      --glow:rgba(109,143,21,.06);
+      --danger:#B64A3A;
+      color-scheme:light;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#FBFAF7;
+    --bg-raise:#F0EFEA;
+    --bg-panel:#FFFFFF;
+    --line:rgba(20,24,33,.12);
+    --line-soft:rgba(20,24,33,.06);
+    --text:#10141C;
+    --muted:#4A5464;
+    --faint:#8C96A8;
+    --accent:#6D8F15;
+    --accent-dim:rgba(109,143,21,.55);
+    --accent-tint:rgba(109,143,21,.1);
+    --on-accent:#FFFFFF;
+    --glow:rgba(109,143,21,.06);
+    --danger:#B64A3A;
+    color-scheme:light;
   }
   *{box-sizing:border-box; margin:0; padding:0}
   html,body{overflow-x:clip}
@@ -35,13 +75,13 @@
     line-height:1.6; -webkit-font-smoothing:antialiased;
     padding:1.25rem;
   }
-  ::selection{background:var(--accent); color:#0B0E13}
+  ::selection{background:var(--accent); color:var(--on-accent)}
 
   .wrap{position:relative; width:min(23rem, 100%)}
   .wrap::before{
     content:""; position:absolute; inset:-6rem -8rem auto;
     height:24rem;
-    background:radial-gradient(closest-side, rgba(198,241,53,.05), transparent);
+    background:radial-gradient(closest-side, var(--glow), transparent);
     pointer-events:none;
   }
   .card{
@@ -73,7 +113,7 @@
   button{
     width:100%; margin-top:1.5rem; cursor:pointer;
     font-family:var(--mono); font-size:13px;
-    background:var(--accent); color:#0B0E13;
+    background:var(--accent); color:var(--on-accent);
     border:1px solid var(--accent); border-radius:7px; padding:8px 16px;
     transition:filter .15s ease;
   }

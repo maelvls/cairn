@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:ital,wght@0,400..700;1,400..600&family=Fragment+Mono:ital@0;1&display=swap" rel="stylesheet">
+<script>(()=>{try{const t=localStorage.getItem('cairnTheme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <style>
   :root{
     --bg:#0B0E13;
@@ -21,13 +22,57 @@
     --accent:#C6F135;
     --accent-dim:rgba(198,241,53,.55);
     --accent-tint:rgba(198,241,53,.08);
+    --on-accent:#0B0E13;
     --danger:#E08A7C;
     --danger-dim:rgba(224,138,124,.55);
     --ok:var(--accent);
+    --header-bg:rgba(11,14,19,.74);
+    --flash-shadow:0 .5rem 2rem rgb(0 0 0 / .5);
     /* generic fallbacks matter: this page is served by a self-hosted binary
        that may run with no internet access to Google Fonts */
     --sans:"Familjen Grotesk",-apple-system,"Segoe UI","Helvetica Neue",Arial,sans-serif;
     --mono:"Fragment Mono",ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+    color-scheme:dark;
+  }
+  @media (prefers-color-scheme:light){
+    :root:not([data-theme="dark"]){
+      --bg:#FBFAF7;
+      --bg-raise:#F0EFEA;
+      --bg-panel:#FFFFFF;
+      --line:rgba(20,24,33,.12);
+      --line-soft:rgba(20,24,33,.06);
+      --text:#10141C;
+      --muted:#4A5464;
+      --faint:#8C96A8;
+      --accent:#6D8F15;
+      --accent-dim:rgba(109,143,21,.55);
+      --accent-tint:rgba(109,143,21,.1);
+      --on-accent:#FFFFFF;
+      --danger:#B64A3A;
+      --danger-dim:rgba(182,74,58,.55);
+      --header-bg:rgba(251,250,247,.78);
+      --flash-shadow:0 .5rem 2rem rgb(20 24 33 / .12);
+      color-scheme:light;
+    }
+  }
+  :root[data-theme="light"]{
+    --bg:#FBFAF7;
+    --bg-raise:#F0EFEA;
+    --bg-panel:#FFFFFF;
+    --line:rgba(20,24,33,.12);
+    --line-soft:rgba(20,24,33,.06);
+    --text:#10141C;
+    --muted:#4A5464;
+    --faint:#8C96A8;
+    --accent:#6D8F15;
+    --accent-dim:rgba(109,143,21,.55);
+    --accent-tint:rgba(109,143,21,.1);
+    --on-accent:#FFFFFF;
+    --danger:#B64A3A;
+    --danger-dim:rgba(182,74,58,.55);
+    --header-bg:rgba(251,250,247,.78);
+    --flash-shadow:0 .5rem 2rem rgb(20 24 33 / .12);
+    color-scheme:light;
   }
   *{box-sizing:border-box; margin:0; padding:0}
   html,body{overflow-x:clip}
@@ -36,14 +81,14 @@
     font-size:16px; line-height:1.6; min-height:100svh;
     -webkit-font-smoothing:antialiased;
   }
-  ::selection{background:var(--accent); color:#0B0E13}
+  ::selection{background:var(--accent); color:var(--on-accent)}
   a{color:inherit}
 
   /* -------------------------------------------------------------- top bar */
   header{
     display:flex; align-items:center; flex-wrap:wrap; gap:.5rem 1.1rem;
     padding:.65rem clamp(16px,4vw,32px);
-    background:rgba(11,14,19,.74);
+    background:var(--header-bg);
     backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
     border-bottom:1px solid var(--line);
     position:sticky; top:0; z-index:5;
@@ -130,11 +175,11 @@
   .btn:hover, .btn:focus-visible{border-color:var(--accent-dim); color:var(--accent)}
   .btn.danger:hover, .btn.danger:focus-visible{border-color:var(--danger-dim); color:var(--danger)}
   .btn.primary{
-    background:var(--accent); color:#0B0E13; border-color:var(--accent);
+    background:var(--accent); color:var(--on-accent); border-color:var(--accent);
     padding:8px 16px; font-size:13px; border-radius:7px;
     transition:filter .15s ease;
   }
-  .btn.primary:hover{filter:brightness(1.08); color:#0B0E13}
+  .btn.primary:hover{filter:brightness(1.08); color:var(--on-accent)}
 
   /* ---------------------------------------------------------------- forms */
   form.bar{
@@ -162,9 +207,31 @@
     background:var(--bg-raise); color:var(--text); border:1px solid var(--accent-dim);
     font-family:var(--mono); font-size:12.5px;
     padding:.6rem 1rem; border-radius:8px; max-width:min(40rem,90vw);
-    word-break:break-all; display:none; box-shadow:0 .5rem 2rem rgb(0 0 0 / .5);
+    word-break:break-all; display:none; box-shadow:var(--flash-shadow);
     z-index:10;
   }
+
+  /* -------------------------------------------------------- theme toggle */
+  .theme-toggle{
+    font-family:var(--mono); font-size:13px; line-height:1; cursor:pointer;
+    background:none; border:1px solid var(--line); color:var(--muted);
+    border-radius:6px; padding:5px 9px;
+    transition:color .15s ease, border-color .15s ease;
+  }
+  .theme-toggle:hover, .theme-toggle:focus-visible{
+    color:var(--accent); border-color:var(--accent-dim);
+  }
+  /* defaults: dark theme → show sun (go to light); hidden moon */
+  .theme-toggle .ico-moon{display:none}
+  .theme-toggle .ico-sun{display:inline}
+  @media (prefers-color-scheme:light){
+    :root:not([data-theme="dark"]) .theme-toggle .ico-sun{display:none}
+    :root:not([data-theme="dark"]) .theme-toggle .ico-moon{display:inline}
+  }
+  :root[data-theme="light"] .theme-toggle .ico-sun{display:none}
+  :root[data-theme="light"] .theme-toggle .ico-moon{display:inline}
+  :root[data-theme="dark"] .theme-toggle .ico-sun{display:inline}
+  :root[data-theme="dark"] .theme-toggle .ico-moon{display:none}
 
   /* ----------------------------------------------------------- responsive */
   @media (max-width:560px){
@@ -193,6 +260,9 @@
     </nav>
     <span class="spacer"></span>
     <span class="chip" id="who"></span>
+    <button class="theme-toggle" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">
+      <span class="ico-sun" aria-hidden="true">☀</span><span class="ico-moon" aria-hidden="true">☾</span>
+    </button>
     <span class="chip"><a href="/logout">sign out</a></span>
   </header>
 
@@ -262,6 +332,16 @@
     $$('nav button').forEach(b => b.classList.toggle('active', b === btn));
     $$('main section').forEach(s => s.classList.toggle('active', s.id === btn.dataset.tab));
   }));
+
+  // Theme toggle
+  $('#themeToggle').addEventListener('click', () => {
+    const root = document.documentElement;
+    const cur = root.getAttribute('data-theme');
+    const sysLight = matchMedia('(prefers-color-scheme: light)').matches;
+    const next = cur ? (cur === 'light' ? 'dark' : 'light') : (sysLight ? 'dark' : 'light');
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('cairnTheme', next); } catch (e) {}
+  });
 
   const td = (content, cls) => {
     const el = document.createElement('td');
