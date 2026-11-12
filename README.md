@@ -263,6 +263,8 @@ PUT|DELETE /api/artifacts/{id}/pin          pin for the calling user
 POST   /api/artifacts/{id}/resources        {type, value}
 DELETE /api/artifacts/{id}/resources/{rid}
 GET    /api/artifacts/{id}/comments         ?status=open|resolved (default: all), oldest first
+GET    /api/artifacts/{id}/comments/stream  SSE: live stream of comment.created|resolved|reopened|updated
+                                            events; keepalive ": ping" every 15 s; Last-Event-ID supported
 POST   /api/artifacts/{id}/comments         {body, parentId, versionId, anchor}
                                             anchor (thread roots only): {selector, quote ≤ 300 chars, path}
 PATCH  /api/artifacts/{id}/comments/{cid}   {body} (author) and/or {resolved}
@@ -320,6 +322,7 @@ cairn push ./dist --artifact my-app --create --json   # prints the URLs
 cairn push ./dist --artifact my-app --overwrite latest
 cairn push ./my-page            # same directory, same artifact (new one the first time)
 cairn comments list my-app      # open threads left in the viewer
+cairn comments watch my-app     # live feed (SSE): new comments and replies as they arrive, Ctrl-C quits
 cairn comments add my-app "Fixed in v3." --reply <comment-id> --resolve
 cairn comments add my-app "Too small" --selector "main > h1" --quote "Results"   # about one element
 cairn db query --artifact my-app --json "SELECT COUNT(*) FROM notes"
@@ -412,6 +415,39 @@ API keys and session tokens work on `/mcp` too, for scripts.
 `version` defaults to the latest one everywhere. Each tool replays the
 matching `/api` route in-process (`internal/server/mcp.go`), so limits and
 validation are the API's.
+
+### Events (push notifications)
+
+`initialize` advertises an `events` capability alongside `tools`. Three JSON-RPC
+methods, per [OpenAI's MCP events spec](https://developers.openai.com/plugins/build/mcp-events)
+(webhook delivery):
+
+| Method | |
+|--------|-|
+| `events/list` | The event names, their `inputSchema` (filter arguments) and `payloadSchema`. |
+| `events/subscribe` | Register a webhook URL for an event; cairn POSTs each matching payload. |
+| `events/unsubscribe` | Stop deliveries for the same (name, arguments, callback URL) tuple. |
+
+Four event names are currently exposed: `comment.created`, `comment.resolved`,
+`comment.reopened`, `comment.updated`. The optional `arguments.artifactId`
+narrows a subscription to one artifact.
+
+**Delivery** — `delivery.mode` is `"webhook"`. The callback URL must be
+HTTPS (or `http://localhost` for local development). `delivery.secret` is
+`whsec_<base64>` (decoded: 24–64 bytes). Before storing the subscription,
+cairn POSTs a one-shot verification challenge the callback must echo. Each
+event is then POSTed with [Standard Webhooks](https://www.standardwebhooks.com)
+headers (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<hmac>`)
+plus `X-MCP-Subscription-Id`. Subscriptions live in memory and expire after
+1 h — clients `events/subscribe` again before `refreshBefore` to extend.
+
+The MCP WG's [Tasks & Events charter](https://modelcontextprotocol.io/community/working-groups/tasks-events)
+is still a work in progress; when its SEP lands, this endpoint will migrate to
+the ratified method names without changing the delivery contract.
+
+A lighter-weight alternative, for scripts and the `cairn` CLI itself, is the
+SSE stream at `GET /api/artifacts/{id}/comments/stream` — see
+[`cairn comments watch`](#cli-for-agents).
 
 ```sh
 curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" \

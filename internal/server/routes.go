@@ -79,6 +79,7 @@ func (s *Server) routes() {
 
 	// Comment threads (signed-in users only, public artifacts included)
 	mux.HandleFunc("GET /api/artifacts/{id}/comments", s.requireAuth(s.withArtifact(s.handleListComments)))
+	mux.HandleFunc("GET /api/artifacts/{id}/comments/stream", s.requireAuth(s.withArtifact(s.handleCommentsStream)))
 	mux.HandleFunc("POST /api/artifacts/{id}/comments", s.requireAuth(s.withArtifact(s.handleCreateComment)))
 	mux.HandleFunc("PATCH /api/artifacts/{id}/comments/{cid}", s.requireAuth(s.withArtifact(s.handleUpdateComment)))
 	mux.HandleFunc("DELETE /api/artifacts/{id}/comments/{cid}", s.requireAuth(s.withArtifact(s.handleDeleteComment)))

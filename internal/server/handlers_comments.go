@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
@@ -164,6 +165,7 @@ func (s *Server) handleCreateComment(w http.ResponseWriter, r *http.Request) {
 	}
 	s.log.Info("comment added", "artifact", a.ID, "comment", c.ID, "via", c.Via, "by", u.Email)
 	s.notifyComment(a, u, c)
+	s.publishCommentEvent("comment.created", a, c)
 	writeJSON(w, http.StatusCreated, c)
 }
 
@@ -212,7 +214,32 @@ func (s *Server) handleUpdateComment(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreError(w, err, "comment")
 		return
 	}
+	if req.Resolved != nil {
+		name := "comment.resolved"
+		if !*req.Resolved {
+			name = "comment.reopened"
+		}
+		s.publishCommentEvent(name, a, c)
+	} else if req.Body != nil {
+		s.publishCommentEvent("comment.updated", a, c)
+	}
 	writeJSON(w, http.StatusOK, c)
+}
+
+// publishCommentEvent broadcasts a comment change on the event bus so the
+// SSE endpoint and MCP webhook deliverer can push it to listeners. A failure
+// to encode the payload (shouldn't happen for a well-formed Comment) is
+// swallowed: the API response is the source of truth.
+func (s *Server) publishCommentEvent(name string, a *store.Artifact, c *store.Comment) {
+	if s.bus == nil {
+		return
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		s.log.Warn("event marshal", "event", name, "artifact", a.ID, "comment", c.ID, "err", err)
+		return
+	}
+	s.bus.Publish(Event{Name: name, ArtifactID: a.ID, Data: data}, artifactTopic(a.ID), allEventsTopic)
 }
 
 func (s *Server) handleDeleteComment(w http.ResponseWriter, r *http.Request) {

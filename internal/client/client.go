@@ -218,6 +218,67 @@ func (c *Client) ResolveComment(artifactID, commentID string, resolved bool) (*s
 		map[string]bool{"resolved": resolved}, &out)
 }
 
+// CommentEvent is one frame of the comments SSE stream. Data is the Comment
+// JSON; Name is the kind of change ("comment.created", "comment.resolved",
+// "comment.reopened", "comment.updated").
+type CommentEvent struct {
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	ArtifactID string          `json:"artifactId"`
+	OccurredAt string          `json:"occurredAt"`
+	Data       json.RawMessage `json:"data"`
+}
+
+// Comment decodes Data back into a Comment. Returns nil, nil when Data is
+// empty (e.g. a heartbeat frame that slipped through).
+func (e *CommentEvent) Comment() (*store.Comment, error) {
+	if len(e.Data) == 0 {
+		return nil, nil
+	}
+	var c store.Comment
+	if err := json.Unmarshal(e.Data, &c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+// WatchComments opens the SSE stream GET /api/artifacts/{id}/comments/stream
+// and returns a response the caller closes when done. Use ParseCommentSSE
+// to consume events from its body; lastEventID (optional) is sent as the
+// SSE Last-Event-ID header so a reconnection skips events already seen.
+func (c *Client) WatchComments(artifactID, lastEventID string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", c.Host+"/api/artifacts/"+url.PathEscape(artifactID)+"/comments/stream", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	if lastEventID != "" {
+		req.Header.Set("Last-Event-ID", lastEventID)
+	}
+	// SSE is a long-lived stream: disable the default client timeout for
+	// this one call. The caller cancels through the response body (Close).
+	cl := *c.HTTP
+	cl.Timeout = 0
+	resp, err := cl.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		defer resp.Body.Close()
+		var apiErr apiError
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		json.Unmarshal(data, &apiErr)
+		if apiErr.Error == "" {
+			apiErr.Error = "watch failed"
+		}
+		return nil, &APIError{Status: resp.StatusCode, Message: apiErr.Error}
+	}
+	return resp, nil
+}
+
 // Versions
 
 func (c *Client) ListVersions(artifactID string) ([]*store.Version, error) {

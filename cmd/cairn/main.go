@@ -18,7 +18,7 @@ Client:
   cairn whoami           Show the authenticated user
   cairn artifact         Manage artifacts (list|create|show|update|delete)
   cairn push             Upload a directory as a new (or replaced) version
-  cairn comments         Read and answer feedback left in the viewer (list|add|resolve)
+  cairn comments         Read, watch and answer feedback left in the viewer (list|watch|add|resolve)
   cairn db               Run SQL against a version's shared database
   cairn files            Manage a version's file storage (list|put|get|delete)
   cairn open             Print (or open) an artifact URL
