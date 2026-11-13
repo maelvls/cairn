@@ -88,6 +88,7 @@ func (s *Server) routes() {
 	mux.HandleFunc("GET /api/artifacts/{id}/versions/{vid}/db/tables", s.publicAware(s.handleDBTables))
 	mux.HandleFunc("POST /api/artifacts/{id}/versions/{vid}/db/query", s.publicAware(s.handleDBQuery))
 	mux.HandleFunc("POST /api/artifacts/{id}/versions/{vid}/db/batch", s.requireAuth(s.withArtifact(s.handleDBBatch)))
+	mux.HandleFunc("POST /api/artifacts/{id}/versions/{vid}/db/stream", s.requireAuth(s.withArtifact(s.handleDBStream)))
 	mux.HandleFunc("GET /api/artifacts/{id}/versions/{vid}/db/download", s.publicAware(s.handleDBDownload))
 
 	// Per-version file storage

@@ -14,8 +14,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -71,6 +71,10 @@ var mcpEvents = []mcpEventDef{
 		name:        "comment.updated",
 		description: "A comment's body was edited.",
 	},
+	{
+		name:        "db.write",
+		description: "A write (INSERT/UPDATE/DELETE, or an explicit batch) was committed to a version's shared database. Subscribers re-run their own query to see the new rows.",
+	},
 }
 
 type mcpEventDef struct {
@@ -81,11 +85,11 @@ type mcpEventDef struct {
 // webhookSubscription is one active MCP events/subscribe registration.
 type webhookSubscription struct {
 	id          string
-	ownerID     string            // user who registered it
-	eventName   string            // one of mcpEvents
-	args        map[string]any    // canonical filter (today: artifactId)
+	ownerID     string         // user who registered it
+	eventName   string         // one of mcpEvents
+	args        map[string]any // canonical filter (today: artifactId)
 	callbackURL string
-	secret      string            // whsec_<base64>
+	secret      string // whsec_<base64>
 	createdAt   time.Time
 	expiresAt   time.Time
 }
@@ -288,10 +292,10 @@ type subscribeInput struct {
 }
 
 type subscribeOutput struct {
-	ID             string `json:"id"`
-	RefreshBefore  string `json:"refreshBefore,omitempty"`
-	Cursor         *struct{} `json:"cursor"` // null per the spec: not replayable
-	Truncated      bool   `json:"truncated"`
+	ID            string    `json:"id"`
+	RefreshBefore string    `json:"refreshBefore,omitempty"`
+	Cursor        *struct{} `json:"cursor"` // null per the spec: not replayable
+	Truncated     bool      `json:"truncated"`
 }
 
 var errUnknownEvent = errors.New("unknown event name")

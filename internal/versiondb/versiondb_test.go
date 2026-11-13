@@ -192,6 +192,54 @@ func TestInvalidateAndDelete(t *testing.T) {
 	}
 }
 
+func TestWriteHook(t *testing.T) {
+	m := testManager(t)
+	ctx := context.Background()
+
+	type call struct{ aid, vid string }
+	var got []call
+	m.SetWriteHook(func(aid, vid string) { got = append(got, call{aid, vid}) })
+
+	// Read: no hook.
+	if _, err := m.Exec(ctx, "a1", "v1", false, Statement{SQL: "SELECT 1"}); err != nil {
+		t.Fatal(err)
+	}
+	// Write via Exec: hook fires once.
+	if _, err := m.Exec(ctx, "a1", "v1", true, Statement{SQL: "CREATE TABLE t (id INTEGER PRIMARY KEY)"}); err != nil {
+		t.Fatal(err)
+	}
+	// Batch with two writes: hook fires once (per commit).
+	if _, err := m.Batch(ctx, "a1", "v1", []Statement{
+		{SQL: "INSERT INTO t VALUES (1)"},
+		{SQL: "INSERT INTO t VALUES (2)"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Anonymous write: rejected before any commit, so no hook.
+	if _, err := m.Exec(ctx, "a1", "v1", false, Statement{SQL: "INSERT INTO t VALUES (3)"}); err == nil {
+		t.Error("anonymous write should fail")
+	}
+
+	if want := []call{{"a1", "v1"}, {"a1", "v1"}}; len(got) != len(want) {
+		t.Fatalf("hook calls = %v, want %v", got, want)
+	}
+	for i, c := range got {
+		if c.aid != "a1" || c.vid != "v1" {
+			t.Errorf("call %d = %+v", i, c)
+		}
+	}
+
+	// Clearing the hook stops notifications.
+	m.SetWriteHook(nil)
+	before := len(got)
+	if _, err := m.Exec(ctx, "a1", "v1", true, Statement{SQL: "INSERT INTO t VALUES (4)"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != before {
+		t.Errorf("hook still firing after SetWriteHook(nil): %d calls", len(got)-before)
+	}
+}
+
 func TestBlobsAreBase64(t *testing.T) {
 	m := testManager(t)
 	ctx := context.Background()

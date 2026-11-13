@@ -69,6 +69,23 @@ func createArtifact(t *testing.T, c *testClient, name string, public bool) strin
 	return a.ID
 }
 
+// uploadEmptyVersion creates the simplest possible version (an index.html)
+// and returns its id. For tests that need a /versions/{vid}/... route to
+// resolve without caring about page content.
+func uploadEmptyVersion(t *testing.T, c *testClient, aid string) string {
+	t.Helper()
+	resp := c.upload("POST", "/api/artifacts/"+aid+"/versions",
+		zipFrom(t, map[string]string{"index.html": "<p>empty</p>"}),
+		map[string]string{"name": "v1"})
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("upload: %d", resp.StatusCode)
+	}
+	v := decode[struct {
+		ID string `json:"id"`
+	}](t, resp)
+	return v.ID
+}
+
 func TestUploadAndReplace(t *testing.T) {
 	_, ts := testServer(t)
 	admin := login(t, ts.URL, "admin@example.com", "admin-password")

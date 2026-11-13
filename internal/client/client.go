@@ -373,6 +373,67 @@ func (c *Client) Batch(artifactID, versionID string, stmts []versiondb.Statement
 	return out, err
 }
 
+// WatchDBRequest is the POST body of the /db/stream endpoint.
+type WatchDBRequest struct {
+	SQL        string `json:"sql"`
+	Params     []any  `json:"params,omitempty"`
+	CoalesceMs *int64 `json:"coalesceMs,omitempty"`
+}
+
+// DBStreamEvent is what each `db.init` / `db.result` frame carries, decoded
+// from the SSE data field. The envelope matches handlers_db_stream.go.
+type DBStreamEvent struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	ArtifactID string            `json:"artifactId"`
+	VersionID  string            `json:"versionId"`
+	OccurredAt string            `json:"occurredAt"`
+	Result     *versiondb.Result `json:"result"`
+	Error      string            `json:"error,omitempty"`
+}
+
+// WatchDB opens the SSE stream POST /db/stream and returns the live HTTP
+// response. The caller consumes frames with NewSSEReader(resp.Body).Next and
+// closes resp.Body when done. lastEventID (optional) is sent as
+// Last-Event-ID so a reconnection skips what it already saw.
+func (c *Client) WatchDB(artifactID, versionID string, in WatchDBRequest, lastEventID string) (*http.Response, error) {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST",
+		c.Host+"/api/artifacts/"+url.PathEscape(artifactID)+"/versions/"+url.PathEscape(versionID)+"/db/stream",
+		bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	if lastEventID != "" {
+		req.Header.Set("Last-Event-ID", lastEventID)
+	}
+	cl := *c.HTTP
+	cl.Timeout = 0 // SSE is long-lived; cancel through resp.Body.Close().
+	resp, err := cl.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		defer resp.Body.Close()
+		var apiErr apiError
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+		json.Unmarshal(data, &apiErr)
+		if apiErr.Error == "" {
+			apiErr.Error = "watch failed"
+		}
+		return nil, &APIError{Status: resp.StatusCode, Message: apiErr.Error}
+	}
+	return resp, nil
+}
+
 // File storage
 
 // FileInfo describes one file in a version's storage.
