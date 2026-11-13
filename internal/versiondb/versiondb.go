@@ -133,6 +133,13 @@ type entry struct {
 	stale bool
 }
 
+// WriteHook is called after every committed write on a per-version database,
+// so an outside watcher (the SSE handler, MCP delivery) can notice without
+// polling. It never runs for failed writes, reads or anonymous callers (those
+// are routed to the query_only pool). It is invoked inline on the write
+// goroutine — keep implementations non-blocking.
+type WriteHook func(artifactID, versionID string)
+
 // Manager caches open handles to version databases.
 type Manager struct {
 	layout  store.Layout
@@ -141,10 +148,30 @@ type Manager struct {
 
 	mu      sync.Mutex
 	entries map[string]*entry
+
+	hookMu sync.RWMutex
+	hook   WriteHook
 }
 
 func NewManager(layout store.Layout, timeout time.Duration, maxRows int) *Manager {
 	return &Manager{layout: layout, timeout: timeout, maxRows: maxRows, entries: make(map[string]*entry)}
+}
+
+// SetWriteHook installs a callback fired after every successful write. Passing
+// nil clears the hook. Concurrency-safe.
+func (m *Manager) SetWriteHook(h WriteHook) {
+	m.hookMu.Lock()
+	m.hook = h
+	m.hookMu.Unlock()
+}
+
+func (m *Manager) fireWriteHook(artifactID, versionID string) {
+	m.hookMu.RLock()
+	h := m.hook
+	m.hookMu.RUnlock()
+	if h != nil {
+		h(artifactID, versionID)
+	}
 }
 
 func key(artifactID, versionID string) string { return artifactID + "/" + versionID }
@@ -279,7 +306,11 @@ func (m *Manager) Exec(ctx context.Context, artifactID, versionID string, write 
 		return nil, err
 	}
 	defer conn.Close()
-	return m.runStatement(ctx, conn, stmt, write)
+	res, err := m.runStatement(ctx, conn, stmt, write)
+	if err == nil && write {
+		m.fireWriteHook(artifactID, versionID)
+	}
+	return res, err
 }
 
 // Batch runs statements inside a single transaction on the read-write pool,
@@ -308,6 +339,7 @@ func (m *Manager) Batch(ctx context.Context, artifactID, versionID string, stmts
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	m.fireWriteHook(artifactID, versionID)
 	return results, nil
 }
 

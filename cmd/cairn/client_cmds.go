@@ -904,20 +904,38 @@ func commentsResolve(args []string) error {
 	return nil
 }
 
+const dbUsage = `usage: cairn db query --artifact <id|name> [--version <vid>] [--params '[..]'] "<sql>"
+       cairn db watch --artifact <id|name> [--version <vid>] [--params '[..]']
+                      [--coalesce <dur>] [--json] [--last-event-id <id>] "<sql>"`
+
 func runDB(args []string) error {
-	if len(args) == 0 || args[0] != "query" {
-		return fmt.Errorf("usage: cairn db query --artifact <id|name> [--version <vid>] [--params '[..]'] \"<sql>\"")
+	if len(args) == 0 {
+		return errors.New(dbUsage)
 	}
+	switch args[0] {
+	case "query":
+		return dbQuery(args[1:])
+	case "watch":
+		return dbWatch(args[1:])
+	case "-h", "--help", "help":
+		fmt.Println(dbUsage)
+		return nil
+	default:
+		return fmt.Errorf("unknown db subcommand %q\n%s", args[0], dbUsage)
+	}
+}
+
+func dbQuery(args []string) error {
 	fs := flag.NewFlagSet("db query", flag.ExitOnError)
 	artifact := fs.String("artifact", "", "artifact id or name (required)")
 	version := fs.String("version", "", "version id (default: latest)")
 	paramsJSON := fs.String("params", "[]", "statement parameters as a JSON array")
 	jsonOut := fs.Bool("json", false, "JSON output")
-	if err := fs.Parse(args[1:]); err != nil {
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 || *artifact == "" {
-		return fmt.Errorf("usage: cairn db query --artifact <id|name> [--version <vid>] [--params '[..]'] \"<sql>\"")
+		return errors.New(dbUsage)
 	}
 	var params []any
 	if err := json.Unmarshal([]byte(*paramsJSON), &params); err != nil {
@@ -944,6 +962,140 @@ func runDB(args []string) error {
 	}
 	printResult(res)
 	return nil
+}
+
+// dbWatch opens a POST /db/stream SSE and prints each update as a fresh table
+// (or one JSON event per line with --json). Reconnects with exponential
+// backoff, resumes with Last-Event-ID, exits on SIGINT.
+func dbWatch(args []string) error {
+	fs := flag.NewFlagSet("db watch", flag.ExitOnError)
+	artifact := fs.String("artifact", "", "artifact id or name (required)")
+	version := fs.String("version", "", "version id (default: latest)")
+	paramsJSON := fs.String("params", "[]", "statement parameters as a JSON array")
+	coalesce := fs.Duration("coalesce", 50*time.Millisecond, "merge writes that land within this window into one update (max 5s)")
+	jsonOut := fs.Bool("json", false, "emit one JSON event per line")
+	lastID := fs.String("last-event-id", "", "resume after this event id (default: start of the stream)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 || *artifact == "" {
+		return errors.New(dbUsage)
+	}
+	var params []any
+	if err := json.Unmarshal([]byte(*paramsJSON), &params); err != nil {
+		return fmt.Errorf("--params must be a JSON array: %w", err)
+	}
+	c, err := apiClient()
+	if err != nil {
+		return err
+	}
+	a, err := c.ResolveArtifact(*artifact)
+	if err != nil {
+		return err
+	}
+	vid, err := resolveVersionID(c, a.ID, *version)
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+	if !*jsonOut {
+		fmt.Fprintf(os.Stderr, "watching %s (%s) version %s\n", a.Name, a.ID, vid)
+	}
+
+	ms := coalesce.Milliseconds()
+	req := client.WatchDBRequest{SQL: fs.Arg(0), Params: params, CoalesceMs: &ms}
+
+	backoff := time.Second
+	const backoffMax = 30 * time.Second
+	cur := *lastID
+	for ctx.Err() == nil {
+		n, err := streamDB(ctx, c, a.ID, vid, req, cur, *jsonOut)
+		if err == nil || ctx.Err() != nil {
+			backoff = time.Second
+		} else {
+			fmt.Fprintf(os.Stderr, "watch: %v (retry in %s)\n", err, backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+			}
+			if backoff < backoffMax {
+				backoff *= 2
+				if backoff > backoffMax {
+					backoff = backoffMax
+				}
+			}
+		}
+		if n != "" {
+			cur = n
+		}
+	}
+	return nil
+}
+
+func streamDB(ctx context.Context, c *client.Client, artifactID, versionID string, req client.WatchDBRequest, lastEventID string, jsonOut bool) (string, error) {
+	resp, err := c.WatchDB(artifactID, versionID, req, lastEventID)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	go func() { <-ctx.Done(); resp.Body.Close() }()
+	r := client.NewSSEReader(resp.Body)
+	lastID := lastEventID
+	for {
+		e, err := r.Next()
+		if err != nil {
+			if ctx.Err() != nil || err == io.EOF {
+				return lastID, nil
+			}
+			return lastID, err
+		}
+		if e.Data == "" {
+			continue
+		}
+		if jsonOut {
+			fmt.Println(e.Data)
+			if e.ID != "" {
+				lastID = e.ID
+			}
+			continue
+		}
+		ev, err := e.AsDBStreamEvent()
+		if err != nil {
+			continue
+		}
+		if ev.ID != "" {
+			lastID = ev.ID
+		}
+		if ev.Error != "" {
+			fmt.Fprintf(os.Stderr, "error: %s\n", ev.Error)
+			continue
+		}
+		printDBStreamUpdate(ev)
+	}
+}
+
+// printDBStreamUpdate prints one framed table per update, so a terminal reader
+// can tell updates apart without scrolling past rows from the previous one.
+func printDBStreamUpdate(ev *client.DBStreamEvent) {
+	if ev.Result == nil {
+		return
+	}
+	ts := time.Now().Format("15:04:05")
+	if ev.OccurredAt != "" {
+		if t, err := time.Parse(time.RFC3339Nano, ev.OccurredAt); err == nil {
+			ts = t.Local().Format("15:04:05")
+		}
+	}
+	fmt.Printf("── %s · %s (%d rows", ts, ev.Name, len(ev.Result.Rows))
+	if ev.Result.Truncated {
+		fmt.Print(", truncated")
+	}
+	fmt.Println(")")
+	printResult(ev.Result)
+	fmt.Println()
 }
 
 // resolveVersionID returns the given version id, or the artifact's latest

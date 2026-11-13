@@ -13,6 +13,10 @@ import (
 func (s *Server) mcpEventsList(_ json.RawMessage) (any, error) {
 	events := make([]map[string]any, 0, len(mcpEvents))
 	for _, e := range mcpEvents {
+		schema := commentPayloadSchema
+		if e.name == "db.write" {
+			schema = dbWritePayloadSchema
+		}
 		events = append(events, map[string]any{
 			"name":        e.name,
 			"description": e.description,
@@ -20,11 +24,18 @@ func (s *Server) mcpEventsList(_ json.RawMessage) (any, error) {
 			"inputSchema": object(nil, map[string]any{
 				"artifactId": str("Only deliver events for this artifact. Omit to receive every artifact's events."),
 			}),
-			"payloadSchema": commentPayloadSchema,
+			"payloadSchema": schema,
 		})
 	}
 	return map[string]any{"events": events}, nil
 }
+
+// dbWritePayloadSchema matches the small payload the bus publishes on
+// db.write: enough for a subscriber to know which version to re-query.
+var dbWritePayloadSchema = object([]string{"artifactId", "versionId"}, map[string]any{
+	"artifactId": str("Artifact whose database was written to."),
+	"versionId":  str("Version whose database was written to."),
+})
 
 // commentPayloadSchema matches the Comment JSON delivered in the data field.
 var commentPayloadSchema = object([]string{"id", "artifactId", "body"}, map[string]any{

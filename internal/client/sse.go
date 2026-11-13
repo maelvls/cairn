@@ -94,3 +94,22 @@ func (e *SSEEvent) AsCommentEvent() (*CommentEvent, error) {
 	}
 	return &c, nil
 }
+
+// AsDBStreamEvent decodes the event's data as a DBStreamEvent (what the
+// /db/stream endpoint sends for each db.init / db.result / error frame).
+func (e *SSEEvent) AsDBStreamEvent() (*DBStreamEvent, error) {
+	if e.Data == "" {
+		return nil, errors.New("empty data")
+	}
+	var ev DBStreamEvent
+	if err := json.Unmarshal([]byte(e.Data), &ev); err != nil {
+		return nil, err
+	}
+	if ev.ID == "" {
+		ev.ID = e.ID
+	}
+	if ev.Name == "" {
+		ev.Name = e.Name
+	}
+	return &ev, nil
+}

@@ -4,6 +4,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -165,6 +166,21 @@ func New(cfg Config) (*Server, error) {
 	}
 	s.bus = NewEventBus()
 	s.webhooks = newWebhookDeliverer(s)
+	// Fan DB writes out through the event bus: the SSE handler and the MCP
+	// deliverer pick them up from there. Hook payload is just the versionId
+	// — subscribers re-run their own query to see what changed, so the bus
+	// stays cheap and read/write authorization lives on the regular API.
+	s.dbs.SetWriteHook(func(artifactID, versionID string) {
+		data, _ := json.Marshal(map[string]string{
+			"artifactId": artifactID,
+			"versionId":  versionID,
+		})
+		s.bus.Publish(Event{
+			Name:       "db.write",
+			ArtifactID: artifactID,
+			Data:       data,
+		}, artifactTopic(artifactID), allEventsTopic)
+	})
 	if u, err := url.Parse(cfg.BaseURL); err == nil && u.Scheme == "https" {
 		s.secure = true
 	}
