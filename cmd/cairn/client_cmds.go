@@ -218,9 +218,12 @@ func runWhoami(args []string) error {
 	return nil
 }
 
+const artifactUsage = `usage: cairn artifact <list|create|show|update|delete> [flags]
+Run 'cairn artifact <sub> -h' for a subcommand's flags.`
+
 func runArtifact(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: cairn artifact <list|create|show|update|delete> [flags]")
+		return fmt.Errorf("%s", artifactUsage)
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -234,8 +237,11 @@ func runArtifact(args []string) error {
 		return artifactUpdate(rest)
 	case "delete":
 		return artifactDelete(rest)
+	case "-h", "--help", "help":
+		fmt.Println(artifactUsage)
+		return nil
 	default:
-		return fmt.Errorf("unknown artifact subcommand %q", sub)
+		return fmt.Errorf("unknown artifact subcommand %q\n%s", sub, artifactUsage)
 	}
 }
 
@@ -568,8 +574,11 @@ func runComments(args []string) error {
 		return commentsAdd(args[1:])
 	case "resolve":
 		return commentsResolve(args[1:])
+	case "-h", "--help", "help":
+		fmt.Println(usage)
+		return nil
 	}
-	return errors.New(usage)
+	return fmt.Errorf("unknown comments subcommand %q\n%s", args[0], usage)
 }
 
 // positionals parses fs over args, accepting flags before, between and
@@ -904,9 +913,18 @@ func commentsResolve(args []string) error {
 	return nil
 }
 
+const dbUsage = `usage: cairn db query --artifact <id|name> [--version <vid>] [--params '[..]'] "<sql>"`
+
 func runDB(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "-h", "--help", "help":
+			fmt.Println(dbUsage)
+			return nil
+		}
+	}
 	if len(args) == 0 || args[0] != "query" {
-		return fmt.Errorf("usage: cairn db query --artifact <id|name> [--version <vid>] [--params '[..]'] \"<sql>\"")
+		return fmt.Errorf("%s", dbUsage)
 	}
 	fs := flag.NewFlagSet("db query", flag.ExitOnError)
 	artifact := fs.String("artifact", "", "artifact id or name (required)")
@@ -985,9 +1003,15 @@ func printResult(res *versiondb.Result) {
 	}
 }
 
+const filesUsage = `usage: cairn files list   --artifact <id|name> [--version <vid>] [--json]
+       cairn files put    <remote/path> <local-file> --artifact <id|name> [--version <vid>]
+       cairn files get    <remote/path> --artifact <id|name> [--version <vid>] [--out <local>]
+       cairn files delete <remote/path> --artifact <id|name> [--version <vid>]
+Run 'cairn files <sub> -h' for a subcommand's flags.`
+
 func runFiles(args []string) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: cairn files <list|put|get|delete> [flags]")
+		return fmt.Errorf("%s", filesUsage)
 	}
 	sub, rest := args[0], args[1:]
 	switch sub {
@@ -999,8 +1023,11 @@ func runFiles(args []string) error {
 		return filesGet(rest)
 	case "delete":
 		return filesDelete(rest)
+	case "-h", "--help", "help":
+		fmt.Println(filesUsage)
+		return nil
 	default:
-		return fmt.Errorf("unknown files subcommand %q", sub)
+		return fmt.Errorf("unknown files subcommand %q\n%s", sub, filesUsage)
 	}
 }
 
