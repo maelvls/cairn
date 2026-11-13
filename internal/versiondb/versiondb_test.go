@@ -200,12 +200,28 @@ func TestWriteHook(t *testing.T) {
 	var got []call
 	m.SetWriteHook(func(aid, vid string) { got = append(got, call{aid, vid}) })
 
-	// Read: no hook.
+	// Read on the ro pool: no hook.
 	if _, err := m.Exec(ctx, "a1", "v1", false, Statement{SQL: "SELECT 1"}); err != nil {
 		t.Fatal(err)
 	}
-	// Write via Exec: hook fires once.
+	// Write via Exec: CREATE TABLE doesn't bump total_changes() — no hook
+	// (DDL is intentionally silent; use Batch for migrations if you need the
+	// event). The write pool exists but nothing fired.
 	if _, err := m.Exec(ctx, "a1", "v1", true, Statement{SQL: "CREATE TABLE t (id INTEGER PRIMARY KEY)"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("CREATE TABLE fired a hook: %v", got)
+	}
+	// Authenticated SELECT on the rw pool: also no hook, even though write=true.
+	if _, err := m.Exec(ctx, "a1", "v1", true, Statement{SQL: "SELECT * FROM t"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("authenticated SELECT fired a hook: %v", got)
+	}
+	// INSERT via Exec: hook fires once.
+	if _, err := m.Exec(ctx, "a1", "v1", true, Statement{SQL: "INSERT INTO t VALUES (99)"}); err != nil {
 		t.Fatal(err)
 	}
 	// Batch with two writes: hook fires once (per commit).
@@ -221,12 +237,22 @@ func TestWriteHook(t *testing.T) {
 	}
 
 	if want := []call{{"a1", "v1"}, {"a1", "v1"}}; len(got) != len(want) {
-		t.Fatalf("hook calls = %v, want %v", got, want)
+		t.Fatalf("hook calls = %v, want %v (INSERT via Exec + Batch Commit)", got, want)
 	}
 	for i, c := range got {
 		if c.aid != "a1" || c.vid != "v1" {
 			t.Errorf("call %d = %+v", i, c)
 		}
+	}
+
+	// An UPDATE that matches nothing still runs an INSERT/UPDATE/DELETE, so
+	// total_changes() moves by 0 and the hook does NOT fire.
+	n0 := len(got)
+	if _, err := m.Exec(ctx, "a1", "v1", true, Statement{SQL: "UPDATE t SET id=id WHERE id=12345"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != n0 {
+		t.Errorf("no-op UPDATE fired %d extra hook(s)", len(got)-n0)
 	}
 
 	// Clearing the hook stops notifications.

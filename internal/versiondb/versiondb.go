@@ -306,9 +306,22 @@ func (m *Manager) Exec(ctx context.Context, artifactID, versionID string, write 
 		return nil, err
 	}
 	defer conn.Close()
+	// total_changes() is cumulative per connection and only moves on an
+	// actual INSERT/UPDATE/DELETE — comparing before/after lets us fire the
+	// hook on real writes only, so an authenticated SELECT (which runs on
+	// the rw pool too, to keep the authorization invariant simple) does not
+	// trigger a stream of empty events.
+	var before int64
+	if write {
+		conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&before)
+	}
 	res, err := m.runStatement(ctx, conn, stmt, write)
 	if err == nil && write {
-		m.fireWriteHook(artifactID, versionID)
+		var after int64
+		conn.QueryRowContext(ctx, `SELECT total_changes()`).Scan(&after)
+		if after > before {
+			m.fireWriteHook(artifactID, versionID)
+		}
 	}
 	return res, err
 }
