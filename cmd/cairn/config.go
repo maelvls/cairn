@@ -99,7 +99,8 @@ func apiClient() (*client.Client, error) {
 	if host == "" {
 		host = cfg.Host
 	}
-	if token == "" {
+	stored := token == ""
+	if stored {
 		token = cfg.Token
 	}
 	if host == "" {
@@ -108,7 +109,17 @@ func apiClient() (*client.Client, error) {
 	if token == "" {
 		return nil, fmt.Errorf("no credentials for %s: run 'cairn login' or set CAIRN_API_KEY", host)
 	}
-	return client.New(host, token), nil
+	c := client.New(host, token)
+	if stored && host == cfg.Host {
+		// Sliding session: keep the renewed token the server hands back,
+		// so a login used at least once per token lifetime never expires.
+		c.OnToken = func(t string) {
+			if err := saveLogin(c.Host, t); err != nil {
+				fmt.Fprintln(os.Stderr, "warning: could not save the renewed login:", err)
+			}
+		}
+	}
+	return c, nil
 }
 
 func printJSON(v any) error {

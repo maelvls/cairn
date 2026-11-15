@@ -466,6 +466,11 @@ curl -s https://cairn.example.com/mcp -H "Authorization: Bearer $CAIRN_API_KEY" 
 - **Config** — flags > `CAIRN_*` env (`CAIRN_ADDR`, `CAIRN_DATA_DIR`,
   `CAIRN_BASE_URL`, `CAIRN_TOKEN_TTL`, `CAIRN_MAX_UPLOAD_MB`, …). Set
   `--base-url https://…` behind TLS so cookies are marked Secure.
+- **Sessions** — logins last `CAIRN_TOKEN_TTL` (default 7 days) *since last
+  use*: once a session token is past half its lifetime, any request made
+  with it gets a new one, in the `X-Cairn-Token` response header (the CLI
+  saves it to its config) and, for browsers, a fresh `cairn_token` cookie.
+  API keys never expire; OAuth access tokens are not renewed this way.
 - **Password reset** — an admin resets the account; the user picks a new
   password at next sign-in. Tokens are invalidated instantly on reset/disable.
 - **Google sign-in** — set `--google-client-id` / `--google-client-secret`

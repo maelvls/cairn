@@ -159,3 +159,54 @@ func safeNext(next string) string {
 	}
 	return next
 }
+
+// refreshSession renews session JWTs past half their lifetime: the new token
+// goes back in auth.RefreshHeader (bearer clients such as the CLI save it)
+// and, when the token came from the cookie, in a fresh cookie. API keys and
+// OAuth access tokens (which carry an audience) are left alone. Expired or
+// revoked tokens are not renewed: the request fails as usual.
+func (s *Server) refreshSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if token, fromCookie := s.renewedToken(r); token != "" {
+			w.Header().Set(auth.RefreshHeader, token)
+			if fromCookie {
+				s.setSessionCookie(w, token, s.cfg.TokenTTL)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// renewedToken returns a new session token when the request's one is valid
+// and due for renewal, plus whether it was presented as the cookie.
+func (s *Server) renewedToken(r *http.Request) (string, bool) {
+	if r.URL.Path == "/api/auth/logout" || r.URL.Path == "/logout" {
+		return "", false
+	}
+	cred, fromCookie := "", false
+	if h := r.Header.Get("Authorization"); h != "" {
+		cred, _ = strings.CutPrefix(h, "Bearer ")
+	} else if c, err := r.Cookie(tokenCookie); err == nil {
+		cred, fromCookie = c.Value, true
+	}
+	if cred == "" || auth.IsAPIKey(cred) {
+		return "", false
+	}
+	claims, err := auth.VerifyJWT(s.secret, cred)
+	if err != nil || claims.Audience != "" {
+		return "", false
+	}
+	if time.Until(time.Unix(claims.ExpiresAt, 0)) > s.cfg.TokenTTL/2 {
+		return "", false
+	}
+	u, err := s.store.UserByID(claims.UserID)
+	if err != nil || u.Disabled || u.TokenVersion != claims.TokenVersion {
+		return "", false
+	}
+	token, err := s.issueToken(u)
+	if err != nil {
+		s.log.Warn("session refresh failed", "user", u.ID, "err", err)
+		return "", false
+	}
+	return token, fromCookie
+}

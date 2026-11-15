@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aloisdeniel/cairn/internal/auth"
 	"github.com/aloisdeniel/cairn/internal/store"
 	"github.com/aloisdeniel/cairn/internal/versiondb"
 )
@@ -23,6 +24,23 @@ type Client struct {
 	Host  string // e.g. http://localhost:8787
 	Token string // JWT or API key
 	HTTP  *http.Client
+	// OnToken, when set, is called with the renewed session token the server
+	// sends once the current one is past half its lifetime (Token is
+	// already updated). The CLI uses it to save the token, so a login used
+	// at least once a week never expires.
+	OnToken func(token string)
+}
+
+// noteToken picks up a renewed session token from a response.
+func (c *Client) noteToken(resp *http.Response) {
+	t := resp.Header.Get(auth.RefreshHeader)
+	if t == "" || t == c.Token {
+		return
+	}
+	c.Token = t
+	if c.OnToken != nil {
+		c.OnToken(t)
+	}
 }
 
 func New(host, token string) *Client {
@@ -61,6 +79,7 @@ func (c *Client) do(method, path string, body io.Reader, contentType string, out
 	if err != nil {
 		return err
 	}
+	c.noteToken(resp)
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		var apiErr apiError
@@ -266,6 +285,7 @@ func (c *Client) WatchComments(artifactID, lastEventID string) (*http.Response, 
 	if err != nil {
 		return nil, err
 	}
+	c.noteToken(resp)
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
 		var apiErr apiError
@@ -421,6 +441,7 @@ func (c *Client) WatchDB(artifactID, versionID string, in WatchDBRequest, lastEv
 	if err != nil {
 		return nil, err
 	}
+	c.noteToken(resp)
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
 		var apiErr apiError
@@ -475,6 +496,7 @@ func (c *Client) DownloadFile(artifactID, versionID, name string) (io.ReadCloser
 	if err != nil {
 		return nil, err
 	}
+	c.noteToken(resp)
 	if resp.StatusCode >= 400 {
 		defer resp.Body.Close()
 		var apiErr apiError
