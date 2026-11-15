@@ -86,6 +86,12 @@ func SignJWT(secret []byte, c Claims) (string, error) {
 
 var ErrInvalidToken = errors.New("invalid token")
 
+// RefreshHeader carries a renewed session JWT on responses to requests whose
+// session token has used up half its lifetime. Clients that store their
+// token (the CLI) replace it with this value, so an active session never
+// expires; only one left unused for a whole TTL does.
+const RefreshHeader = "X-Cairn-Token"
+
 func VerifyJWT(secret []byte, token string) (*Claims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
