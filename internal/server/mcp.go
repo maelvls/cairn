@@ -94,6 +94,10 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, rpcResponse{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcError{-32700, "parse error"}})
 		return
 	}
+	if m.Method == "events/stream" && len(m.ID) > 0 {
+		s.mcpEventsStream(w, r, m) // answers with an SSE stream
+		return
+	}
 	resp := s.mcpDispatch(r, m)
 	if resp == nil {
 		// Notifications and responses get no answer.
@@ -126,7 +130,7 @@ func (s *Server) mcpDispatch(r *http.Request, m rpcMessage) *rpcResponse {
 			"protocolVersion": version,
 			"capabilities": map[string]any{
 				"tools":  map[string]any{"listChanged": false},
-				"events": map[string]any{},
+				"events": map[string]any{"listChanged": false},
 			},
 			"serverInfo":   map[string]any{"name": "cairn", "title": "Cairn", "version": "1"},
 			"instructions": mcpInstructions,
@@ -151,6 +155,16 @@ func (s *Server) mcpDispatch(r *http.Request, m rpcMessage) *rpcResponse {
 			return resp
 		}
 		resp.Result = out
+	case "events/poll":
+		out, rpcErr := s.mcpEventsPoll(r, m.Params)
+		if rpcErr != nil {
+			resp.Error = rpcErr
+			return resp
+		}
+		resp.Result = out
+	case "events/stream":
+		// Only a request of its own can be answered with a stream.
+		resp.Error = &rpcError{-32600, "events/stream can't be part of a batch"}
 	case "events/subscribe":
 		out, rpcErr := s.mcpEventsSubscribe(r, m.Params)
 		if rpcErr != nil {
