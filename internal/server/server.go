@@ -119,6 +119,8 @@ type Server struct {
 	// events deliverer (webhooks.go).
 	bus      *EventBus
 	webhooks *webhookDeliverer
+	// eventsHeartbeat is how often an events/stream says it is alive.
+	eventsHeartbeat time.Duration
 
 	// Anthropic Messages endpoint (overridable by tests), its client and the
 	// per-user daily quota.
@@ -166,6 +168,7 @@ func New(cfg Config) (*Server, error) {
 	}
 	s.bus = NewEventBus()
 	s.webhooks = newWebhookDeliverer(s)
+	s.eventsHeartbeat = mcpEventsHeartbeat
 	// Fan DB writes out through the event bus: the SSE handler and the MCP
 	// deliverer pick them up from there. Hook payload is just the versionId
 	// — subscribers re-run their own query to see what changed, so the bus
