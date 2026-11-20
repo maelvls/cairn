@@ -431,21 +431,44 @@ validation are the API's.
 
 ### Events (push notifications)
 
-`initialize` advertises an `events` capability alongside `tools`. Three JSON-RPC
-methods, per [OpenAI's MCP events spec](https://developers.openai.com/plugins/build/mcp-events)
-(webhook delivery):
+`initialize` advertises an `events` capability alongside `tools`. The methods
+follow the MCP Triggers & Events working group's
+[design sketch](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md)
+(SEP-3415), with its three delivery modes; ChatGPT uses the webhook one
+([OpenAI's MCP events guide](https://developers.openai.com/plugins/build/mcp-events)).
 
 | Method | |
 |--------|-|
-| `events/list` | The event names, their `inputSchema` (filter arguments) and `payloadSchema`. |
+| `events/list` | The event names, their `delivery` modes (`poll`, `push`, `webhook`), `inputSchema` (filter arguments) and `payloadSchema`. |
+| `events/poll` | The events since a cursor, request/response. |
+| `events/stream` | The events as they happen, on an SSE response. |
 | `events/subscribe` | Register a webhook URL for an event; cairn POSTs each matching payload. |
 | `events/unsubscribe` | Stop deliveries for the same (name, arguments, callback URL) tuple. |
 
-Four event names are currently exposed: `comment.created`, `comment.resolved`,
-`comment.reopened`, `comment.updated`. The optional `arguments.artifactId`
-narrows a subscription to one artifact.
+Five event names are exposed: `comment.created`, `comment.resolved`,
+`comment.reopened`, `comment.updated` and `db.write`. The optional
+`arguments.artifactId` narrows a subscription to one artifact. Every
+signed-in user can read every artifact's events, like the rest of the API.
 
-**Delivery** — `delivery.mode` is `"webhook"`. The callback URL must be
+**Poll** — `events/poll` takes `name`, `arguments`, `cursor` (`null`: from
+now), and optionally `maxEvents` (50 by default, 200 at most) and `maxAgeMs`.
+It answers `events`, the next `cursor`, `hasMore`, `truncated` and
+`nextPollMs` (15 s). No state is kept per client.
+
+**Push** — `events/stream` takes the same parameters, as a request of its own
+(not in a batch). The response is an SSE stream of JSON-RPC notifications:
+`notifications/events/active` first (the cursor it starts from), then
+`notifications/events/event` for each event (with the `cursor` after it), and
+`notifications/events/heartbeat` every 25 s. Each carries the request's id
+in `_meta["io.modelcontextprotocol/subscriptionId"]`. Closing the request
+ends the subscription; reconnect with the last cursor.
+
+**Cursors** — the last 1000 events are kept in memory. A cursor older than
+that, or from before a restart, answers `truncated: true` and goes on from
+there: re-read the comments or the database to catch up. `eventId` is unique
+across restarts, for deduplication.
+
+**Webhook** — `delivery.mode` is `"webhook"`. The callback URL must be
 HTTPS (or `http://localhost` for local development). `delivery.secret` is
 `whsec_<base64>` (decoded: 24–64 bytes). Before storing the subscription,
 cairn POSTs a one-shot verification challenge the callback must echo. Each
@@ -453,10 +476,10 @@ event is then POSTed with [Standard Webhooks](https://www.standardwebhooks.com)
 headers (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<hmac>`)
 plus `X-MCP-Subscription-Id`. Subscriptions live in memory and expire after
 1 h — clients `events/subscribe` again before `refreshBefore` to extend.
+Webhook deliveries aren't replayed (`cursor` is `null`) nor retried.
 
-The MCP WG's [Tasks & Events charter](https://modelcontextprotocol.io/community/working-groups/tasks-events)
-is still a work in progress; when its SEP lands, this endpoint will migrate to
-the ratified method names without changing the delivery contract.
+The sketch is not a ratified SEP yet; when it lands, this endpoint will
+follow its final method names and error codes.
 
 A lighter-weight alternative, for scripts and the `cairn` CLI itself, is the
 SSE stream at `GET /api/artifacts/{id}/comments/stream` — see

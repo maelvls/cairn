@@ -195,14 +195,17 @@ func matchArgs(args map[string]any, e Event) bool {
 // deliver signs the event and POSTs it to sub.callbackURL. Returns an error
 // on non-2xx responses or transport failures; the caller logs.
 func (d *webhookDeliverer) deliver(sub *webhookSubscription, e Event) error {
-	payload, err := eventWebhookBody(e)
+	// The MCP event id, not the bus's counter: it doesn't come back after a
+	// restart, so the receiver can deduplicate on it.
+	id := d.s.bus.eventID(e)
+	payload, err := eventWebhookBody(id, e)
 	if err != nil {
 		return err
 	}
 	if len(payload) > mcpMaxBody {
 		return fmt.Errorf("payload %d bytes exceeds the %d cap", len(payload), mcpMaxBody)
 	}
-	req, err := signedWebhookRequest(sub, e.ID, payload)
+	req, err := signedWebhookRequest(sub, id, payload)
 	if err != nil {
 		return err
 	}
@@ -220,9 +223,9 @@ func (d *webhookDeliverer) deliver(sub *webhookSubscription, e Event) error {
 }
 
 // eventWebhookBody builds the JSON body MCP events deliveries carry.
-func eventWebhookBody(e Event) ([]byte, error) {
+func eventWebhookBody(id string, e Event) ([]byte, error) {
 	env := map[string]any{
-		"eventId":   e.ID,
+		"eventId":   id,
 		"name":      e.Name,
 		"timestamp": e.OccurredAt.UTC().Format(time.RFC3339Nano),
 		"data":      json.RawMessage(e.Data),
