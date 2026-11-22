@@ -67,8 +67,12 @@ pass "CLI resolves resource value"
 
 echo "== serving"
 LOC=$(curl -s -o /dev/null -w '%{redirect_url}' "$HOST/artifacts/$AID")
-[[ "$LOC" == "$HOST/artifacts/$AID/$VID/" || "$LOC" == "/artifacts/$AID/$VID/" ]] || fail "latest redirect ($LOC)"
-pass "artifact redirects to latest version"
+[[ "$LOC" == "$HOST/artifacts/$AID/latest/" || "$LOC" == "/artifacts/$AID/latest/" ]] || fail "latest redirect ($LOC)"
+pass "artifact redirects to the latest alias"
+curl -sf "$HOST/artifacts/$AID/latest/" | grep -q "Guestbook" || fail "latest alias served"
+pass "latest alias serves the newest version in place"
+curl -sf "$HOST/api/artifacts/$AID/versions/latest" | grep -q "$VID" || fail "API latest alias"
+pass "API resolves the latest alias"
 curl -sf "$HOST/artifacts/$AID/$VID/" | grep -q "Guestbook" || fail "index served"
 pass "index.html served"
 curl -sf "$HOST/artifacts/$AID/$VID/cairn.js" | grep -q "cairn.js" || fail "cairn.js injected"
@@ -122,6 +126,14 @@ curl -sf -X POST "$HOST/api/artifacts/$AID/versions/$VID/db/query" \
   -H 'Content-Type: application/json' -d '{"sql":"SELECT message FROM entries"}' \
   | grep -q "hello from e2e" || fail "old version data lost"
 pass "per-version databases isolated; old data readable"
+# The link push hands out follows the latest version; the alias moved to v2.
+URL=$(python3 -c "import json;print(json.load(open('$WORK/push2.json'))['url'])")
+[[ "$URL" == "$HOST/artifacts/$AID/latest/" ]] || fail "push url does not follow latest ($URL)"
+PINNED=$(python3 -c "import json;print(json.load(open('$WORK/push2.json'))['version_url'])")
+[[ "$PINNED" == "$HOST/artifacts/$AID/$VID2/" ]] || fail "push version_url not pinned ($PINNED)"
+curl -sf "$HOST/api/artifacts/$AID/versions/latest" | grep -q "$VID2" || fail "latest alias did not move to v2"
+[[ "$("$BIN" open guestbook)" == "$HOST/artifacts/$AID/latest/" ]] || fail "cairn open does not follow latest"
+pass "push/open links follow the latest version"
 "$BIN" push "$ROOT/examples/guestbook" --artifact guestbook --overwrite latest --changelog "rewritten" >/dev/null
 pass "re-upload (overwrite latest)"
 

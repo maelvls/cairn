@@ -104,8 +104,9 @@ image yourself instead: `docker build -t cairn .`
 | URL | Meaning |
 |---|---|
 | `/` | gallery of artifacts (any signed-in user) |
-| `/artifacts/{id}` | redirects to the latest version |
-| `/artifacts/{id}/{versionId}/` | a version, full screen (canonical) |
+| `/artifacts/{id}` | redirects to `/artifacts/{id}/latest/` |
+| `/artifacts/{id}/latest/` | the latest version, full screen: a stable link that keeps following new pushes |
+| `/artifacts/{id}/{versionId}/` | one specific version, full screen (pinned) |
 | `/shared/{id}` | viewer, following the latest version |
 | `/shared/{id}/{versionId}` | viewer, on one version |
 | `/admin` | admin UI: users and API keys |
@@ -115,6 +116,15 @@ Private artifacts redirect anonymous visitors to `/login?next=…`. Because a
 version is always served under its own directory URL, relative paths inside
 the SPA (`./app.js`, `fetch('data.json')`) just work; extension-less paths
 fall back to `index.html` for client-side routing, missing assets 404.
+
+Which full-screen link to share: `/artifacts/{id}/latest/` always shows the
+newest version; a URL with a version id never changes version. `cairn push`
+prints both ("full screen" and "this version"), and the viewer's *Full
+screen* button opens the first while it follows the latest version, the
+second once a version is picked. A page opened under `latest` stays on the
+version it loaded (`cairn.js` pins its data calls to it) and picks up a newer
+one at the next reload. Each version has its own database and files, so after
+a release the `latest` link shows the new version's (fresh) data.
 
 ### Gallery and viewer
 
@@ -291,6 +301,9 @@ POST   /api/artifacts/{id}/ai               call Claude (auth required): {prompt
 GET    /api/me/ai                           {enabled, model, models, maxTokens, dailyLimit, remaining}
 GET    /api/admin/users|keys ...            admin management
 ```
+
+`{vid}` is a version id or the alias `latest` (the newest version) on every
+route above.
 
 Notes on the AI proxy: exactly one of `prompt` (one user message) or
 `messages` (roles `user`/`assistant`, first one `user`; `content` a string or

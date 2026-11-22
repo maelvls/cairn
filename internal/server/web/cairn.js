@@ -7,6 +7,9 @@
  * Two backends, same API:
  *  - remote: the page is served by Cairn under /artifacts/{id}/{vid}/ and all
  *    calls proxy to the server APIs (auth travels with the session cookie).
+ *    Under /artifacts/{id}/latest/ the page pins itself to the version that
+ *    was newest when it loaded, so a push made while it is open never points
+ *    this page's code at another version's database or files.
  *  - debug: the page runs outside a Cairn server (local dev server, file://).
  *    Data lives in an in-browser SQLite (sql.js/WebAssembly) persisted to
  *    browser storage (IndexedDB), and the user is {id: 0, name: "Debug"}.
@@ -42,6 +45,7 @@
   var isRemote = location.protocol !== 'file:' && !!match;
   var artifactId = isRemote ? match[1] : 'debug-artifact';
   var versionId = isRemote ? match[2] : 'debug-version';
+  var LATEST = 'latest';
 
   // ------------------------------------------------------------------ remote
   function api(path, options) {
@@ -64,6 +68,39 @@
     });
   }
 
+  // pinVersion resolves the "latest" alias to a real version id, once: the
+  // page keeps talking to the version it was loaded from. Until (or unless)
+  // the lookup succeeds, calls use the alias and the server resolves it.
+  var pinning = null;
+  function pinVersion() {
+    if (versionId !== LATEST) return Promise.resolve(versionId);
+    if (!pinning) {
+      pinning = api('/api/artifacts/' + artifactId + '/versions/' + LATEST).then(function (v) {
+        if (!v || !v.id) return LATEST; // anonymous on a private artifact
+        versionId = v.id;
+        if (global.cairn) {
+          global.cairn.versionId = v.id;
+          global.cairn.db.downloadURL = dbDownloadURL();
+        }
+        return v.id;
+      }, function () {
+        pinning = null; // transient failure: retry on the next call
+        return LATEST;
+      });
+    }
+    return pinning;
+  }
+
+  // versionFor returns the version a call targets: an explicit {version}
+  // option, else the page's own (pinned) version.
+  function versionFor(opts) {
+    return (opts && opts.version) ? Promise.resolve(opts.version) : pinVersion();
+  }
+
+  function dbDownloadURL() {
+    return '/api/artifacts/' + artifactId + '/versions/' + versionId + '/db/download';
+  }
+
   // fileURL builds the storage URL for a file path, encoding each segment.
   function fileURL(path, vid) {
     return '/api/artifacts/' + artifactId + '/versions/' + (vid || versionId) +
@@ -71,36 +108,46 @@
   }
 
   var remote = {
-    ready: function () { return Promise.resolve(); },
+    ready: function () { return pinVersion().then(function () {}); },
     me: function () { return api('/api/me'); },
     users: function () { return api('/api/users') || []; },
     artifact: function () { return api('/api/artifacts/' + artifactId); },
     versions: function () { return api('/api/artifacts/' + artifactId + '/versions'); },
     query: function (sql, params, opts) {
-      var vid = (opts && opts.version) || versionId;
-      return post('/api/artifacts/' + artifactId + '/versions/' + vid + '/db/query',
-        { sql: sql, params: params || [] });
+      return versionFor(opts).then(function (vid) {
+        return post('/api/artifacts/' + artifactId + '/versions/' + vid + '/db/query',
+          { sql: sql, params: params || [] });
+      });
     },
     batch: function (statements) {
-      return post('/api/artifacts/' + artifactId + '/versions/' + versionId + '/db/batch',
-        { statements: statements });
+      return pinVersion().then(function (vid) {
+        return post('/api/artifacts/' + artifactId + '/versions/' + vid + '/db/batch',
+          { statements: statements });
+      });
     },
     listFiles: function (opts) {
-      var vid = (opts && opts.version) || versionId;
-      return api('/api/artifacts/' + artifactId + '/versions/' + vid + '/files');
+      return versionFor(opts).then(function (vid) {
+        return api('/api/artifacts/' + artifactId + '/versions/' + vid + '/files');
+      });
     },
     downloadFile: function (path, opts) {
-      return fetch(fileURL(path, opts && opts.version)).then(function (resp) {
+      return versionFor(opts).then(function (vid) {
+        return fetch(fileURL(path, vid));
+      }).then(function (resp) {
         if (resp.status === 404) return null;
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
         return resp.blob();
       });
     },
     uploadFile: function (path, data) {
-      return api(fileURL(path), { method: 'PUT', body: data });
+      return pinVersion().then(function (vid) {
+        return api(fileURL(path, vid), { method: 'PUT', body: data });
+      });
     },
     removeFile: function (path) {
-      return api(fileURL(path), { method: 'DELETE' }).then(function () { return true; });
+      return pinVersion().then(function (vid) {
+        return api(fileURL(path, vid), { method: 'DELETE' });
+      }).then(function () { return true; });
     },
   };
 
@@ -421,9 +468,7 @@
       query: function (sql, params, opts) { return backend.query(sql, params, opts); },
       batch: function (statements) { return backend.batch(statements); },
       migrate: migrate,
-      downloadURL: isRemote
-        ? '/api/artifacts/' + artifactId + '/versions/' + versionId + '/db/download'
-        : null,
+      downloadURL: isRemote ? dbDownloadURL() : null,
     },
     files: {
       list: function (opts) { return backend.listFiles(opts); },
@@ -458,4 +503,8 @@
       },
     },
   };
+
+  // Pin as early as possible, so the pinned version is the one this page was
+  // actually loaded from.
+  if (isRemote) pinVersion();
 })(window);

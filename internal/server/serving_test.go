@@ -59,13 +59,13 @@ func TestServingRedirectsAndFiles(t *testing.T) {
 	_, ts := testServer(t)
 	_, aid, vid := setupArtifact(t, ts.URL, true)
 
-	// /artifacts/{id} → latest version canonical URL
+	// /artifacts/{id} → the URL that keeps following the latest version
 	resp := get(t, ts.URL+"/artifacts/"+aid, "", "text/html")
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("artifact redirect: %d", resp.StatusCode)
 	}
 	loc := resp.Header.Get("Location")
-	if loc != "/artifacts/"+aid+"/"+vid+"/" {
+	if loc != "/artifacts/"+aid+"/latest/" {
 		t.Errorf("redirect location: %s", loc)
 	}
 
@@ -177,12 +177,31 @@ func TestSharedShell(t *testing.T) {
 	if !strings.Contains(html, "site") {
 		t.Errorf("shell missing artifact name")
 	}
+	// ...and the viewer is told it follows the latest version (its script then
+	// hands out /artifacts/{id}/latest/ as the full-screen link)
+	if !strings.Contains(html, `"follow":true`) {
+		t.Errorf("latest shell should boot in follow mode")
+	}
 
-	// Pinned version
+	// The alias spelled out behaves like no version at all; the frame itself
+	// is always on a real version id
+	resp = get(t, ts.URL+"/shared/"+aid+"/latest", "", "text/html")
+	html = body(t, resp)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(html, `src="/artifacts/`+aid+"/"+v2.ID+`/"`) {
+		t.Errorf("/shared/{id}/latest: %d", resp.StatusCode)
+	}
+	if !strings.Contains(html, `"follow":true`) {
+		t.Errorf("/shared/{id}/latest should boot in follow mode")
+	}
+
+	// Pinned version: an explicit pick stays pinned
 	resp = get(t, ts.URL+"/shared/"+aid+"/"+vid, "", "text/html")
 	html = body(t, resp)
-	if !strings.Contains(html, "/artifacts/"+aid+"/"+vid+"/") {
+	if !strings.Contains(html, `src="/artifacts/`+aid+"/"+vid+`/"`) {
 		t.Errorf("pinned shell should embed version %s", vid)
+	}
+	if !strings.Contains(html, `"follow":false`) {
+		t.Errorf("pinned shell should not boot in follow mode")
 	}
 
 	// Login page renders

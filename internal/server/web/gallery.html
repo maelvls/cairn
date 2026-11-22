@@ -330,7 +330,8 @@
   }
 
   function actions(a) {
-    const full = a.latestVersion ? '/artifacts/' + a.id + '/' + a.latestVersion.id + '/' : null;
+    // The artifact, not one version of it: a link that follows the latest.
+    const full = a.latestVersion ? '/artifacts/' + a.id + '/latest/' : null;
     return [
       {label: 'Open in viewer', icon: 'panel', href: viewerURL(a)},
       full && {label: 'Open full screen', icon: 'external', href: full, target: '_blank'},

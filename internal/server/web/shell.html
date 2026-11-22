@@ -279,6 +279,10 @@
   const base = '/api/artifacts/' + S.a.id;
   const latest = () => S.versions[0];
   const fullURL = v => '/artifacts/' + S.a.id + '/' + v.id + '/';
+  // The full-screen page that keeps following the latest version: what the
+  // viewer hands out while it follows the latest itself. The frame stays on
+  // fullURL(S.current), so one page load never mixes two versions.
+  const latestURL = () => '/artifacts/' + S.a.id + '/latest/';
   const viewerURL = v => '/shared/' + S.a.id + (v ? '/' + v.id : '');
   const titleOf = a => a.description && a.description.length <= 90 ? a.description : a.name;
   const openThreads = () => S.comments.filter(c => !c.parentId && !c.resolvedAt).length;
@@ -326,7 +330,8 @@
     const els = [
       tool('copyBtn', 'link', 'Copy link', {onclick: () => copy(location.origin + viewerURL(S.follow ? null : S.current))}),
       tool('reloadBtn', 'refresh', 'Reload', {onclick: () => reloadFrame()}),
-      h('a.btn.ghost', {href: fullURL(S.current), target: '_blank', rel: 'noopener', title: 'Open full screen', 'aria-label': 'Open full screen'},
+      h('a.btn.ghost', {href: S.follow ? latestURL() : fullURL(S.current), target: '_blank', rel: 'noopener', 'aria-label': 'Open full screen',
+        title: S.follow ? 'Open full screen (a link that always shows the latest version)' : `Open full screen (version #${S.current.seq}, pinned)`},
         icon('external'), h('span.label', 'Full screen')),
       h('span.sep'),
       ...tabs.map(t => {
@@ -575,7 +580,8 @@
     frag.append(h('section.sec',
       h('h3', 'LINKS'),
       link('viewer, always the latest version', location.origin + viewerURL(null)),
-      link(`full screen, version #${S.current.seq}`, location.origin + fullURL(S.current))));
+      link('full screen, always the latest version', location.origin + latestURL()),
+      link(`full screen, version #${S.current.seq} only`, location.origin + fullURL(S.current))));
 
     frag.append(h('section.sec',
       h('h3', `VERSIONS (${S.versions.length})`, h('span.spacer'),

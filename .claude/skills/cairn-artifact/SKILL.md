@@ -38,7 +38,7 @@ Create a self-contained directory (e.g. `./artifact/`):
 - `index.html` at the root — required.
 - Relative asset paths only (`./app.js`, `fetch('data.json')`). Never absolute
   paths like `/app.js`: the artifact is served under
-  `/artifacts/{id}/{versionId}/`.
+  `/artifacts/{id}/{versionId}/` (or `/artifacts/{id}/latest/`).
 - For client-side routing use hash routing, or extension-less paths (they fall
   back to `index.html`).
 - To use the shared database or user info, include
@@ -92,7 +92,12 @@ report the viewer URL to the user:
 - viewer (`viewer_url`): `<host>/shared/<artifactId>` — the page with its
   versions, comments, data and source; it follows the latest version and
   reloads by itself when you push again, so the user can keep it open
-- full screen (`url`): `<host>/artifacts/<artifactId>/<versionId>/`
+- full screen (`url`): `<host>/artifacts/<artifactId>/latest/` — the page
+  alone; it always shows the latest version, so it stays valid after later
+  pushes. Give this one when the user wants a full-screen link.
+- one exact version (`version_url`):
+  `<host>/artifacts/<artifactId>/<versionId>/` — pinned: it never moves to a
+  newer version. Only give it when the user wants a frozen link.
 
 Public vs private: add `--public` to `push --create` (or
 `cairn artifact update <id> --public true|false`) — public means anyone with

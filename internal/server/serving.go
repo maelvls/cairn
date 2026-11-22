@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"html/template"
 	"net/http"
@@ -47,10 +49,11 @@ func (s *Server) resolvePageArtifact(w http.ResponseWriter, r *http.Request) *st
 	return a
 }
 
-// handleArtifactRedirect sends /artifacts/{id} to the latest version's
-// canonical URL so every relative asset resolves inside one version. The {id}
-// may be a resource reference (e.g. a Claude session id); the redirect
-// canonicalizes it to the artifact id.
+// handleArtifactRedirect sends /artifacts/{id} to /artifacts/{id}/latest/:
+// a trailing-slash base URL so relative assets resolve, and one that keeps
+// following new versions, so the address a visitor copies never goes stale.
+// The {id} may be a resource reference (e.g. a Claude session id); the
+// redirect canonicalizes it to the artifact id.
 func (s *Server) handleArtifactRedirect(w http.ResponseWriter, r *http.Request) {
 	a := s.resolvePageArtifact(w, r)
 	if a == nil {
@@ -59,21 +62,26 @@ func (s *Server) handleArtifactRedirect(w http.ResponseWriter, r *http.Request) 
 	if !s.pageAuth(w, r, a) {
 		return
 	}
-	v, err := s.store.LatestVersion(a.ID)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			http.Error(w, "this artifact has no versions yet", http.StatusNotFound)
-			return
-		}
-		http.Error(w, "internal error", http.StatusInternalServerError)
+	if _, err := s.store.LatestVersion(a.ID); err != nil {
+		writeNoVersion(w, err)
 		return
 	}
-	http.Redirect(w, r, "/artifacts/"+a.ID+"/"+v.ID+"/", http.StatusFound)
+	http.Redirect(w, r, "/artifacts/"+a.ID+"/"+latestVersionAlias+"/", http.StatusFound)
+}
+
+// writeNoVersion reports a failed latest-version lookup on a page route.
+func writeNoVersion(w http.ResponseWriter, err error) {
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, "this artifact has no versions yet", http.StatusNotFound)
+		return
+	}
+	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
 // handleVersionPage serves the files of one version. The path shape is
 // /artifacts/{id}/{vid}/{path...} — a trailing-slash canonical base URL, so
-// relative routing inside the SPA needs no rewriting at all.
+// relative routing inside the SPA needs no rewriting at all. A {vid} of
+// "latest" serves the newest version in place (no redirect to its id).
 func (s *Server) handleVersionPage(w http.ResponseWriter, r *http.Request) {
 	a := s.resolvePageArtifact(w, r)
 	if a == nil {
@@ -82,14 +90,34 @@ func (s *Server) handleVersionPage(w http.ResponseWriter, r *http.Request) {
 	if !s.pageAuth(w, r, a) {
 		return
 	}
-	v, err := s.store.VersionByID(a.ID, r.PathValue("vid"))
+	ref := r.PathValue("vid")
+	v, err := s.versionByRef(a.ID, ref)
 	if err != nil {
+		if ref == latestVersionAlias {
+			writeNoVersion(w, err)
+			return
+		}
 		http.NotFound(w, r)
 		return
+	}
+	if ref == latestVersionAlias {
+		// The same URL serves different content after each push: always
+		// revalidate (the ETag below makes that a cheap 304 when unchanged).
+		w.Header().Set("Cache-Control", "no-cache")
 	}
 	rel := r.PathValue("path")
 	artifactPageHeaders(w)
 	s.serveVersionFile(w, r, a, v, rel)
+}
+
+// serveContentFile serves one file of a version's content dir. A content dir
+// is immutable and unique per upload, so it makes an exact validator: file
+// mtimes cannot be trusted across versions (deleting the newest version makes
+// "latest" point at older files, which If-Modified-Since would call fresh).
+func serveContentFile(w http.ResponseWriter, r *http.Request, v *store.Version, name string) {
+	sum := sha256.Sum256([]byte(v.ContentDir))
+	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:8])+`"`)
+	http.ServeFile(w, r, name)
 }
 
 // handleVersionNoSlash canonicalizes /artifacts/{id}/{vid} (no trailing
@@ -141,7 +169,7 @@ func (s *Server) serveVersionFile(w http.ResponseWriter, r *http.Request, a *sto
 		// SPA fallback: extension-less paths negotiated as HTML get
 		// index.html; real assets 404 so missing files fail loudly.
 		if path.Ext(clean) == "" && acceptsHTML(r) {
-			http.ServeFile(w, r, filepath.Join(root, "index.html"))
+			serveContentFile(w, r, v, filepath.Join(root, "index.html"))
 			return
 		}
 		http.NotFound(w, r)
@@ -156,7 +184,7 @@ func (s *Server) serveVersionFile(w http.ResponseWriter, r *http.Request, a *sto
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, target)
+	serveContentFile(w, r, v, target)
 }
 
 func mustEval(p string) string {
@@ -202,7 +230,11 @@ func (s *Server) handleShared(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	current := versions[0]
-	if vid := r.PathValue("vid"); vid != "" {
+	// Following the latest version: no {vid}, or the "latest" alias spelled
+	// out. A version picked explicitly stays pinned.
+	vid := r.PathValue("vid")
+	follow := vid == "" || vid == latestVersionAlias
+	if !follow {
 		found := false
 		for _, v := range versions {
 			if v.ID == vid {
@@ -221,7 +253,7 @@ func (s *Server) handleShared(w http.ResponseWriter, r *http.Request) {
 		"artifact": a,
 		"version":  current,
 		"versions": versions,
-		"follow":   r.PathValue("vid") == "",
+		"follow":   follow,
 		"user":     pageUser(u),
 		"pinned":   u != nil && s.store.IsPinned(u.ID, a.ID),
 	}

@@ -152,7 +152,8 @@ func TestMCPPublishAndData(t *testing.T) {
 		Version struct {
 			ID string `json:"id"`
 		} `json:"version"`
-		URL string `json:"url"`
+		URL        string `json:"url"`
+		VersionURL string `json:"version_url"`
 	}
 	callTool(t, c, "publish", map[string]any{
 		"name":   "hello",
@@ -163,17 +164,22 @@ func TestMCPPublishAndData(t *testing.T) {
 		},
 		"changelog": "first",
 	}, &pub, false)
-	if pub.Artifact.ID == "" || !pub.Artifact.Public || !strings.HasSuffix(pub.URL, "/artifacts/"+pub.Artifact.ID+"/"+pub.Version.ID+"/") {
+	// url keeps following the latest version; version_url is this one, pinned.
+	if pub.Artifact.ID == "" || !pub.Artifact.Public ||
+		!strings.HasSuffix(pub.URL, "/artifacts/"+pub.Artifact.ID+"/latest/") ||
+		!strings.HasSuffix(pub.VersionURL, "/artifacts/"+pub.Artifact.ID+"/"+pub.Version.ID+"/") {
 		t.Fatalf("publish: %+v", pub)
 	}
-	page, err := http.Get(ts.URL + "/artifacts/" + pub.Artifact.ID + "/" + pub.Version.ID + "/")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(page.Body)
-	page.Body.Close()
-	if string(body) != "<h1>héllo</h1>" {
-		t.Fatalf("served page: %q", body)
+	for _, u := range []string{pub.URL, pub.VersionURL} {
+		page, err := http.Get(ts.URL + u[strings.Index(u, "/artifacts/"):])
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := io.ReadAll(page.Body)
+		page.Body.Close()
+		if string(body) != "<h1>héllo</h1>" {
+			t.Fatalf("%s served %q", u, body)
+		}
 	}
 
 	var src map[string]any

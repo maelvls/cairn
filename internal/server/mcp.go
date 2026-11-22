@@ -37,7 +37,7 @@ var mcpProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "20
 
 const mcpInstructions = `Cairn hosts artifacts: single-page web apps (an index.html plus assets), each with versions, a shared SQLite database per version, and a file storage per version.
 
-- publish creates an artifact (or a new version of one) from files given inline; the result's url is the page to open. Artifacts are private (sign-in required) unless public is true.
+- publish creates an artifact (or a new version of one) from files given inline; the result's url is the page to open and to share: it always shows the latest version (version_url is that exact version, and never moves). Artifacts are private (sign-in required) unless public is true.
 - Pages can use the shared database and file storage through cairn.js: <script src="./cairn.js"></script> is served inside every version.
 - "artifact" arguments take an artifact id (or a resource value associated with it); "version" defaults to the latest version.
 - db_query runs one SQL statement; db_batch runs several in one transaction (use it for CREATE TABLE migrations).
@@ -272,7 +272,7 @@ func (s *Server) mcpVersion(artifactRef, versionID string) (*store.Artifact, *st
 			return nil, nil, fmt.Errorf("artifact %q has no versions yet", a.ID)
 		}
 	} else {
-		v, err = s.store.VersionByID(a.ID, versionID)
+		v, err = s.versionByRef(a.ID, versionID) // an id, or "latest"
 		if errors.Is(err, store.ErrNotFound) {
 			return nil, nil, fmt.Errorf("version %q of artifact %q not found", versionID, a.ID)
 		}
@@ -283,14 +283,13 @@ func (s *Server) mcpVersion(artifactRef, versionID string) (*store.Artifact, *st
 	return a, v, nil
 }
 
-// mcpURL is the external URL of an artifact page (latest version when vid
-// is empty).
+// mcpURL is the external URL of an artifact page: version vid, or, when vid
+// is empty, the URL that keeps following the latest version.
 func (s *Server) mcpURL(aid, vid string) string {
-	u := strings.TrimRight(s.cfg.BaseURL, "/") + "/artifacts/" + aid
-	if vid != "" {
-		u += "/" + vid + "/"
+	if vid == "" {
+		vid = latestVersionAlias
 	}
-	return u
+	return strings.TrimRight(s.cfg.BaseURL, "/") + "/artifacts/" + aid + "/" + vid + "/"
 }
 
 // mcpViewerURL is the external URL of an artifact in the viewer, where
@@ -507,7 +506,7 @@ var mcpTools = []mcpTool{
 		name: "publish",
 		description: "Publish a web page: creates an artifact with its first version, or (with artifact) adds a version to an existing one, " +
 			"or (with artifact and replace_version) overwrites a version's files in place, keeping its database and file storage. " +
-			"Returns the page URL.",
+			"Returns the page URL (url, always the latest version) and that version's own URL (version_url).",
 		schema: object([]string{"files"}, map[string]any{
 			"files":           filesProp,
 			"artifact":        str("Existing artifact to publish a new version of. Omit to create a new artifact."),
@@ -516,7 +515,7 @@ var mcpTools = []mcpTool{
 			"public":          map[string]any{"type": "boolean", "description": "New artifact only: viewable without signing in. Defaults to false."},
 			"version_name":    str("Name of the version, e.g. v2."),
 			"changelog":       str("What changed in this version."),
-			"replace_version": str("Version id to overwrite instead of adding a version."),
+			"replace_version": str("Version id (or \"latest\") to overwrite instead of adding a version."),
 		}),
 		call: func(s *Server, r *http.Request, raw json.RawMessage) (any, error) {
 			args, err := decodeArgs[struct {
@@ -572,7 +571,7 @@ var mcpTools = []mcpTool{
 				}
 				return nil, err
 			}
-			return map[string]any{"artifact": a, "version": v, "url": s.mcpURL(a.ID, v.ID), "viewer_url": s.mcpViewerURL(a.ID)}, nil
+			return map[string]any{"artifact": a, "version": v, "url": s.mcpURL(a.ID, ""), "version_url": s.mcpURL(a.ID, v.ID), "viewer_url": s.mcpViewerURL(a.ID)}, nil
 		},
 	},
 	{

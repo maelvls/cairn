@@ -516,20 +516,27 @@ func runPush(args []string) error {
 	}
 	rememberPush(c.Host, dir, a.ID)
 	viewer := fmt.Sprintf("%s/shared/%s", c.Host, a.ID)
+	// The full-screen link to hand out follows the latest version, so it stays
+	// valid after the next push; the pinned one is there for when this exact
+	// version matters.
+	latestURL := fmt.Sprintf("%s/artifacts/%s/latest/", c.Host, a.ID)
+	versionURL := fmt.Sprintf("%s/artifacts/%s/%s/", c.Host, a.ID, v.ID)
 	if *openFlag {
 		openBrowser(viewer)
 	}
 	if *jsonOut {
 		return printJSON(map[string]any{
-			"artifact":   a,
-			"version":    v,
-			"url":        fmt.Sprintf("%s/artifacts/%s/%s/", c.Host, a.ID, v.ID),
-			"viewer_url": viewer,
+			"artifact":    a,
+			"version":     v,
+			"url":         latestURL,
+			"version_url": versionURL,
+			"viewer_url":  viewer,
 		})
 	}
 	fmt.Printf("pushed %s as version #%d of %s (%s)\n", dir, v.Seq, a.Name, v.ID)
-	fmt.Printf("  viewer:      %s\n", viewer)
-	fmt.Printf("  full screen: %s/artifacts/%s/%s/\n", c.Host, a.ID, v.ID)
+	fmt.Printf("  viewer:       %s\n", viewer)
+	fmt.Printf("  full screen:  %s  (always the latest version)\n", latestURL)
+	fmt.Printf("  this version: %s\n", versionURL)
 	if cs, err := c.ListComments(a.ID, "open"); err == nil {
 		if n := countThreads(cs); n > 0 {
 			fmt.Printf("  %d open comment thread(s): cairn comments list %s\n", n, a.ID)
@@ -1324,11 +1331,15 @@ func runOpen(args []string) error {
 		base = "/shared/"
 	}
 	url += base + a.ID
-	if *version != "" {
+	switch {
+	case *version != "":
 		url += "/" + *version
-	}
-	if !*shared && *version != "" {
-		url += "/"
+		if !*shared {
+			url += "/"
+		}
+	case !*shared:
+		// The address /artifacts/{id} redirects to: follows the latest version.
+		url += "/latest/"
 	}
 	fmt.Println(url)
 	if *browser {

@@ -17,7 +17,9 @@ All functions return promises. The library picks its backend automatically:
 ```js
 cairn.mode        // 'remote' | 'debug'
 cairn.artifactId  // from the URL; 'debug-artifact' in debug mode
-cairn.versionId   // from the URL; 'debug-version' in debug mode
+cairn.versionId   // from the URL; 'debug-version' in debug mode. Under
+                  // /artifacts/{id}/latest/ it reads 'latest' until
+                  // cairn.ready() resolves, then the real version id
 await cairn.ready()   // resolves when the backend is usable; call first
 ```
 

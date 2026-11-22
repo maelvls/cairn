@@ -49,9 +49,46 @@ func (s *Server) resolveArtifactRef(ref string) (*store.Artifact, error) {
 
 const artifactCtxKey ctxKey = 100
 
+// latestVersionAlias is accepted wherever a route takes a {vid}: it names the
+// artifact's newest version, so a URL carrying it keeps following new pushes.
+// Real version ids are UUIDs, so the alias can never shadow one.
+const latestVersionAlias = "latest"
+
+// versionByRef resolves a {vid} segment: the "latest" alias or a version id.
+func (s *Server) versionByRef(artifactID, ref string) (*store.Version, error) {
+	if ref == latestVersionAlias {
+		return s.store.LatestVersion(artifactID)
+	}
+	return s.store.VersionByID(artifactID, ref)
+}
+
 // withArtifact resolves the {id} segment (artifact id or resource reference)
-// once and attaches the artifact to the request context.
+// once and attaches the artifact to the request context. A "latest" {vid} is
+// rewritten to the real version id, so handlers only ever see real ids.
 func (s *Server) withArtifact(next http.HandlerFunc) http.HandlerFunc {
+	return s.loadArtifact(s.latestAware(next))
+}
+
+// latestAware rewrites a "latest" {vid} path value to the newest version's id
+// before the handler runs. Handlers use r.PathValue("vid") for storage paths
+// (dbs/, files/), so the alias must never reach them unresolved. It needs the
+// artifact loaded by loadArtifact.
+func (s *Server) latestAware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("vid") == latestVersionAlias {
+			v, err := s.store.LatestVersion(requestArtifact(r).ID)
+			if err != nil {
+				s.writeStoreError(w, err, "version")
+				return
+			}
+			r.SetPathValue("vid", v.ID)
+		}
+		next(w, r)
+	}
+}
+
+// loadArtifact is the artifact-resolution half of withArtifact.
+func (s *Server) loadArtifact(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a, err := s.resolveArtifactRef(r.PathValue("id"))
 		if err != nil {
@@ -87,7 +124,10 @@ func (s *Server) canRead(r *http.Request, a *store.Artifact) bool {
 // publicAware wraps read handlers of artifact-scoped routes: resolves the
 // artifact reference and enforces the public/private rule.
 func (s *Server) publicAware(next http.HandlerFunc) http.HandlerFunc {
-	return s.withArtifact(func(w http.ResponseWriter, r *http.Request) {
+	// The read check runs before the "latest" alias is resolved, so anonymous
+	// callers learn nothing about a private artifact's versions.
+	next = s.latestAware(next)
+	return s.loadArtifact(func(w http.ResponseWriter, r *http.Request) {
 		if !s.canRead(r, requestArtifact(r)) {
 			writeError(w, http.StatusUnauthorized, "authentication required")
 			return

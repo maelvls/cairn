@@ -34,14 +34,17 @@ node internal/server/web/ui_diff_test.mjs   # ui.diffLines/ui.hunks (viewer sour
   single-statement scanner (the driver executes multi-statement input
   otherwise!), batch = one transaction.
 - `internal/server/` — HTTP. `routes.go` is the route table. Serving model:
-  `/artifacts/{id}` 302→ `/artifacts/{id}/{vid}/` (canonical, trailing slash)
-  so relative paths resolve; SPA fallback only for extension-less
-  `Accept: text/html` requests. `web/` holds embedded assets: `login.html`,
+  `/artifacts/{id}` 302→ `/artifacts/{id}/latest/`; a version is served at
+  `/artifacts/{id}/{vid}/` (trailing slash, so relative paths resolve) where
+  `{vid}` is a version id (pinned) or the alias `latest` (served in place, no
+  redirect, so the address bar keeps following new pushes); SPA fallback only
+  for extension-less `Accept: text/html` requests. `web/` holds embedded assets: `login.html`,
   `gallery.html` (`/`, every signed-in user's home: cards with captured
   thumbnails, else live iframe previews, pins, drop-to-publish),
   `shell.html` (the viewer at `/shared/…`: toolbar + side panel with
   details/versions, comments, data, source; polls versions to follow new
-  pushes; captures the missing thumbnail of the version it shows),
+  pushes; its frame is always on a version id, while the full-screen links it
+  hands out use `latest` when it follows the latest version; captures the missing thumbnail of the version it shows),
   `admin.html` (users and API keys), `ui.css`/`ui.js` (shared chrome and
   helpers, served at `/_ui/`; vanilla JS, no build step, templates pass state
   as `{{.Boot}}`; `ui.diffLines` and `ui.hunks` are the Source tab's version
@@ -115,6 +118,15 @@ node internal/server/web/ui_diff_test.mjs   # ui.diffLines/ui.hunks (viewer sour
   the unclaimed state.
 - Users are trusted with everything authenticated; anonymous gets read-only
   access to public artifacts. Keep new endpoints on that line.
+- `latest` is a `{vid}` alias on page and API routes. API handlers read
+  `r.PathValue("vid")` straight into storage paths (`dbs/`, `files/`), so the
+  alias must be resolved before they run: `withArtifact`/`publicAware` rewrite
+  it to the real id (`latestAware`). Wrap every new `{vid}` API route in one
+  of them; page routes resolve it with `versionByRef`.
+- Version pages carry an ETag derived from the content dir (immutable, unique
+  per upload) and `latest` responses add `Cache-Control: no-cache`. File
+  mtimes are not a safe validator across versions (deleting the newest
+  version points `latest` back at older files).
 - The `{id}` segment of artifact routes is a *reference*: artifact id first,
   else resource value/row id (409 on ambiguity). Handlers must use
   `requestArtifact(r)` (set by `withArtifact`/`publicAware`) — never
